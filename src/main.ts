@@ -67,6 +67,17 @@ export default class PuffsReaderPlugin extends Plugin {
       },
     });
 
+    // ── 注册命令：在当前阅读器中打开全文搜索 ──
+    this.addCommand({
+      id: 'search-current-reader-book',
+      name: 'Puffs Reader：全文搜索',
+      hotkeys: [{ modifiers: ['Ctrl'], key: 'f' }],
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(ReaderView);
+        if (view) view.openSearch();
+      },
+    });
+
     // ── 文件右键菜单：对 .txt 文件显示「在阅读器中打开」 ──
     this.registerEvent(
       this.app.workspace.on('file-menu', (menu, file) => {

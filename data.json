@@ -1,13 +1,13 @@
 {
   "settings": {
-    "fontSize": 27,
-    "lineHeight": 1.8,
+    "fontSize": 28,
+    "lineHeight": 1.7,
     "paragraphSpacing": 12,
-    "firstLineIndent": 2,
+    "firstLineIndent": 1,
     "contentWidth": 800,
     "letterSpacing": 0,
-    "paddingTop": 40,
-    "paddingBottom": 40,
+    "paddingTop": 80,
+    "paddingBottom": 80,
     "fontColor": "",
     "backgroundColor": "233,216,188",
     "showProgress": true,
@@ -18,12 +18,14 @@
   },
   "progress": {
     "小说/书库/苟在初圣魔门当人材.txt": {
-      "paragraphIndex": 200,
-      "lastRead": 1776969532436
+      "paragraphIndex": 14010,
+      "charOffset": 0,
+      "lastRead": 1777003177944
     },
     "小说/书库/锦衣夜行.txt": {
-      "paragraphIndex": 255,
-      "lastRead": 1776999343825,
+      "paragraphIndex": 266,
+      "charOffset": 102,
+      "lastRead": 1777003263515,
       "encoding": "gbk"
     }
   }

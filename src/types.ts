@@ -36,6 +36,8 @@ export interface ReaderSettings {
 export interface BookProgress {
   /** 上次阅读的段落索引 */
   paragraphIndex: number;
+  /** 上次阅读的段内字符偏移，用于页模式精确恢复 */
+  charOffset?: number;
   /** 上次阅读时间戳 */
   lastRead: number;
   /** 用户选择的编码（覆写自动检测） */
