@@ -394,10 +394,11 @@ var ReaderView = class extends import_obsidian.ItemView {
       if (pi === to.paraIndex && finish <= begin) continue;
       if (pi > to.paraIndex) continue;
       const visible = fullText.slice(begin, finish);
-      this.contentContainer.appendChild(this.createParagraphEl(visible, pi, begin, true));
+      const continuesAfterPage = finish < fullText.length;
+      this.contentContainer.appendChild(this.createParagraphEl(visible, pi, begin, true, continuesAfterPage));
     }
   }
-  createParagraphEl(text, paraIndex, charOffset, withHighlight) {
+  createParagraphEl(text, paraIndex, charOffset, withHighlight, continuesAfterPage = false) {
     const p = document.createElement("p");
     p.className = "puffs-para";
     p.dataset.paraIndex = String(paraIndex);
@@ -412,6 +413,9 @@ var ReaderView = class extends import_obsidian.ItemView {
       p.classList.add("puffs-para-blank");
       p.innerHTML = "&nbsp;";
       return p;
+    }
+    if (continuesAfterPage) {
+      p.classList.add("puffs-para-continued");
     }
     if (withHighlight && this.searchResults.length > 0) {
       const end = charOffset + text.length;

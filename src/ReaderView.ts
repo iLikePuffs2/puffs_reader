@@ -419,7 +419,8 @@ export class ReaderView extends ItemView {
       if (pi > to.paraIndex) continue;
 
       const visible = fullText.slice(begin, finish);
-      this.contentContainer.appendChild(this.createParagraphEl(visible, pi, begin, true));
+      const continuesAfterPage = finish < fullText.length;
+      this.contentContainer.appendChild(this.createParagraphEl(visible, pi, begin, true, continuesAfterPage));
     }
   }
 
@@ -428,6 +429,7 @@ export class ReaderView extends ItemView {
     paraIndex: number,
     charOffset: number,
     withHighlight: boolean,
+    continuesAfterPage = false,
   ): HTMLElement {
     const p = document.createElement('p');
     p.className = 'puffs-para';
@@ -445,6 +447,11 @@ export class ReaderView extends ItemView {
       p.classList.add('puffs-para-blank');
       p.innerHTML = '&nbsp;';
       return p;
+    }
+
+    // 分页截断出的临时段落并不是真正的段尾；让它的末行也参与两端对齐。
+    if (continuesAfterPage) {
+      p.classList.add('puffs-para-continued');
     }
 
     if (withHighlight && this.searchResults.length > 0) {
