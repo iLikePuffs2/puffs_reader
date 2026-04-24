@@ -166,8 +166,18 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.buildTocSidebar();
     this.buildReadingArea();
     this.buildTypographyPanel();
+    this.bindWorkspaceFocusEvents();
     this.bindGlobalKeys();
     this.applyTypography();
+  }
+  bindWorkspaceFocusEvents() {
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf === this.leaf) {
+          this.focusReader();
+        }
+      })
+    );
   }
   buildTocSidebar() {
     this.tocSidebar = this.bodyEl.createDiv({ cls: "puffs-toc-sidebar puffs-hidden" });

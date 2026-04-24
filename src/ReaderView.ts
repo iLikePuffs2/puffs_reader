@@ -149,8 +149,19 @@ export class ReaderView extends ItemView {
     this.buildTocSidebar();
     this.buildReadingArea();
     this.buildTypographyPanel();
+    this.bindWorkspaceFocusEvents();
     this.bindGlobalKeys();
     this.applyTypography();
+  }
+
+  private bindWorkspaceFocusEvents(): void {
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', (leaf) => {
+        if (leaf === this.leaf) {
+          this.focusReader();
+        }
+      }),
+    );
   }
 
   private buildTocSidebar(): void {
