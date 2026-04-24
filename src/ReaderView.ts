@@ -802,6 +802,9 @@ export class ReaderView extends ItemView {
     this.isTocOpen = true;
     this.tocSidebar.classList.remove('puffs-hidden');
     this.setSearchMode(mode === 'search');
+    if (mode === 'toc') {
+      requestAnimationFrame(() => this.scrollTocToActiveChapter());
+    }
     if (mode === 'search') {
       this.clearSearchInput();
       requestAnimationFrame(() => {
@@ -825,6 +828,16 @@ export class ReaderView extends ItemView {
       if (!enabled) {
       this.readingArea.focus();
     }
+  }
+
+  private scrollTocToActiveChapter(): void {
+    const activeChapter = this.getActiveChapterIndex(this.currentPageStart.paraIndex);
+    if (activeChapter < 0) return;
+
+    const item = this.tocListEl.querySelectorAll<HTMLElement>('.puffs-toc-item')[activeChapter];
+    if (!item) return;
+
+    item.scrollIntoView({ block: 'center' });
   }
 
   private clearSearchInput(): void {
