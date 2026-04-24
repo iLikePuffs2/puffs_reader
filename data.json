@@ -1,15 +1,25 @@
 {
   "settings": {
-    "fontSize": 28,
+    "fontSize": 30,
     "lineHeight": 1.7,
     "paragraphSpacing": 12,
-    "firstLineIndent": 1,
+    "firstLineIndent": 0,
     "contentWidth": 800,
     "letterSpacing": 0,
-    "paddingTop": 80,
-    "paddingBottom": 80,
-    "fontColor": "",
+    "paddingTop": 60,
+    "paddingBottom": 60,
+    "fontColor": "0,0,0",
     "backgroundColor": "233,216,188",
+    "floatingButtonColor": "163,151,131",
+    "chapterMetaFontSize": 15,
+    "chapterMetaColor": "163,151,131",
+    "chapterMetaTop": 20,
+    "progressMetaFontSize": 15,
+    "progressMetaColor": "163,151,131",
+    "progressMetaBottom": 20,
+    "sidebarWidth": 300,
+    "sidebarTransitionMs": 0,
+    "tocFontSize": 16,
     "showProgress": true,
     "removeExtraBlankLines": true,
     "tocRegex": "^\\s*第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇].*$",
@@ -18,15 +28,22 @@
   },
   "progress": {
     "小说/书库/苟在初圣魔门当人材.txt": {
-      "paragraphIndex": 14010,
+      "paragraphIndex": 28,
       "charOffset": 0,
-      "lastRead": 1777003177944
+      "lastRead": 1777017464688
     },
     "小说/书库/锦衣夜行.txt": {
-      "paragraphIndex": 266,
-      "charOffset": 102,
-      "lastRead": 1777003263515,
+      "paragraphIndex": 606,
+      "charOffset": 0,
+      "lastRead": 1777018286895
+    }
+  },
+  "bookSettings": {
+    "小说/书库/锦衣夜行.txt": {
       "encoding": "gbk"
+    },
+    "小说/书库/苟在初圣魔门当人材.txt": {
+      "encoding": "utf-8"
     }
   }
 }
