@@ -111,6 +111,10 @@ export default class PuffsReaderPlugin extends Plugin {
       state: { file: file.path },
     });
     this.app.workspace.setActiveLeaf(leaf, { focus: true });
+    const view = leaf.view;
+    if (view instanceof ReaderView) {
+      view.focusReader();
+    }
   }
 
   // ═══════════════════════════ 数据持久化 ═══════════════════════════

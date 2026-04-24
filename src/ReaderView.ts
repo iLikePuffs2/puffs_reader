@@ -119,6 +119,7 @@ export class ReaderView extends ItemView {
       }
     }
     await super.setState(state, result);
+    this.focusReader();
   }
 
   /** 供插件命令调用，打开当前阅读器的全文搜索。 */
@@ -130,6 +131,11 @@ export class ReaderView extends ItemView {
   refreshSettingsFromGlobal(): void {
     this.applyTypography();
     this.renderCurrentPage();
+  }
+
+  /** 供外部打开/切换书籍后调用，把键盘焦点稳定交给阅读区。 */
+  focusReader(): void {
+    this.focusReadingAreaSoon();
   }
 
   private buildUI(): void {
@@ -255,7 +261,19 @@ export class ReaderView extends ItemView {
     });
     this.pageBackStack = [];
     this.renderCurrentPage();
+    this.focusReadingAreaSoon();
+  }
+
+  private focusReadingAreaSoon(): void {
+    if (!this.readingArea || !this.readingArea.isConnected) return;
     this.readingArea.focus();
+    requestAnimationFrame(() => {
+      if (!this.readingArea.isConnected) return;
+      this.readingArea.focus();
+      window.setTimeout(() => {
+        if (this.readingArea.isConnected) this.readingArea.focus();
+      }, 0);
+    });
   }
 
   private decodeBuffer(buffer: ArrayBuffer, forceEncoding?: string): { text: string; encoding: string } {
