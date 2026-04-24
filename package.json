@@ -1,0 +1,19 @@
+{
+  "name": "puffs-reader",
+  "version": "1.0.0",
+  "description": "TXT novel reader plugin for Obsidian",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "keywords": [],
+  "author": "Puffs",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "esbuild": "^0.25.3",
+    "obsidian": "latest",
+    "typescript": "^5.8.3"
+  }
+}

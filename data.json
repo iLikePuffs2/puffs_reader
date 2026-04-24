@@ -1,0 +1,30 @@
+{
+  "settings": {
+    "fontSize": 27,
+    "lineHeight": 1.8,
+    "paragraphSpacing": 12,
+    "firstLineIndent": 2,
+    "contentWidth": 800,
+    "letterSpacing": 0,
+    "paddingTop": 40,
+    "paddingBottom": 40,
+    "fontColor": "",
+    "backgroundColor": "233,216,188",
+    "showProgress": true,
+    "removeExtraBlankLines": true,
+    "tocRegex": "^\\s*第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇].*$",
+    "defaultEncoding": "utf-8",
+    "searchHotkey": "Ctrl+F"
+  },
+  "progress": {
+    "小说/书库/苟在初圣魔门当人材.txt": {
+      "paragraphIndex": 200,
+      "lastRead": 1776969532436
+    },
+    "小说/书库/锦衣夜行.txt": {
+      "paragraphIndex": 255,
+      "lastRead": 1776999343825,
+      "encoding": "gbk"
+    }
+  }
+}
