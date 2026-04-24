@@ -148,6 +148,15 @@ var ReaderView = class extends import_obsidian.ItemView {
   openSearch() {
     this.openSidebar("search");
   }
+  /** 搜索快捷键重复触发时，在打开/关闭搜索面板之间切换。 */
+  toggleSearchFromHotkey() {
+    if (this.isTocOpen && this.isSearchMode) {
+      this.closeSidebar();
+      this.focusReader();
+      return;
+    }
+    this.openSearch();
+  }
   /** 全局设置面板保存后调用，让已打开阅读器立即使用新排版。 */
   refreshSettingsFromGlobal() {
     this.applyTypography();
@@ -1052,7 +1061,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       if (!this.matchesSearchHotkey(e)) return;
       e.preventDefault();
       e.stopPropagation();
-      this.openSearch();
+      this.toggleSearchFromHotkey();
     };
     document.addEventListener("keydown", this.boundGlobalKeydown, true);
     window.addEventListener("keydown", this.boundGlobalKeydown, true);
@@ -1069,7 +1078,7 @@ var ReaderView = class extends import_obsidian.ItemView {
   handleKeydown(e) {
     if (this.matchesSearchHotkey(e)) {
       e.preventDefault();
-      this.openSearch();
+      this.toggleSearchFromHotkey();
       return;
     }
     if (e.key === "ArrowRight") {
