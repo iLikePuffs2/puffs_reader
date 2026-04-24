@@ -28,6 +28,7 @@ export class SettingsTab extends PluginSettingTab {
     this.addNumberSetting('正文顶部间距', '正文内容与页面顶部的距离 (px)', 'paddingTop', 0, 180, 1, 'px');
     this.addNumberSetting('正文底部间距', '正文内容与页面底部的距离 (px)', 'paddingBottom', 0, 200, 1, 'px');
     this.addNumberSetting('左侧栏宽度', '目录和全文搜索侧栏宽度 (px)', 'sidebarWidth', 220, 520, 1, 'px');
+    this.addNumberSetting('侧栏过渡速度', '目录和全文搜索侧栏展开/收起动画时长 (ms)', 'sidebarTransitionMs', 0, 800, 10, 'ms');
     this.addNumberSetting('目录字体大小', '左侧目录条目的字体大小 (px)', 'tocFontSize', 11, 20, 1, 'px');
 
     this.addTextSetting('字体颜色', 'RGB 格式，如 51,51,51。留空跟随主题。', 'fontColor', '例如 51,51,51');

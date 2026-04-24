@@ -81,8 +81,8 @@
 .puffs-floating-btn:hover {
   background: var(--puffs-bg-color) !important;
   background-color: var(--puffs-bg-color) !important;
-  color: var(--puffs-floating-button-color, var(--text-muted));
-  border-color: transparent;
+  color: var(--puffs-floating-button-color, var(--text-muted)) !important;
+  border-color: transparent !important;
 }
 
 .puffs-floating-controls {
@@ -105,6 +105,17 @@
   border-right: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
   background: var(--puffs-panel-bg);
   z-index: 15;
+  transition:
+    width var(--puffs-sidebar-transition, 180ms) ease,
+    flex-basis var(--puffs-sidebar-transition, 180ms) ease;
+}
+
+.puffs-toc-sidebar.puffs-hidden {
+  display: flex !important;
+  width: 0;
+  flex-basis: 0;
+  border-right-width: 0;
+  pointer-events: none;
 }
 
 .puffs-toc-header {
@@ -326,6 +337,14 @@
   text-indent: var(--puffs-indent, 2em);
   word-break: break-all;
   overflow-wrap: anywhere;
+}
+
+.puffs-para-chapter {
+  font-size: calc(var(--puffs-font-size, 18px) + 4px);
+  font-weight: 700;
+  text-indent: 0;
+  text-align: left;
+  text-align-last: left;
 }
 
 .puffs-para:last-child {

@@ -36,6 +36,8 @@ export interface ReaderSettings {
   progressMetaBottom: number;
   /** 左侧栏宽度 (px) */
   sidebarWidth: number;
+  /** 左侧栏展开/收起过渡时长 (ms) */
+  sidebarTransitionMs: number;
   /** 目录字体大小 (px) */
   tocFontSize: number;
   /** 是否显示阅读进度百分比 */
@@ -131,6 +133,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   progressMetaColor: '',
   progressMetaBottom: 10,
   sidebarWidth: 272,
+  sidebarTransitionMs: 180,
   tocFontSize: 13,
   showProgress: true,
   removeExtraBlankLines: true,

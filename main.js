@@ -59,6 +59,7 @@ var DEFAULT_SETTINGS = {
   progressMetaColor: "",
   progressMetaBottom: 10,
   sidebarWidth: 272,
+  sidebarTransitionMs: 180,
   tocFontSize: 13,
   showProgress: true,
   removeExtraBlankLines: true,
@@ -401,6 +402,12 @@ var ReaderView = class extends import_obsidian.ItemView {
     p.className = "puffs-para";
     p.dataset.paraIndex = String(paraIndex);
     p.dataset.charOffset = String(charOffset);
+    const chapter = charOffset === 0 ? this.getChapterStartingAt(paraIndex) : null;
+    if (chapter) {
+      p.classList.add("puffs-para-chapter");
+      p.textContent = chapter.title;
+      return p;
+    }
     if (text.trim() === "") {
       p.classList.add("puffs-para-blank");
       p.innerHTML = "&nbsp;";
@@ -424,10 +431,7 @@ var ReaderView = class extends import_obsidian.ItemView {
   isContentOverflowing() {
     return this.contentContainer.scrollHeight > this.contentContainer.clientHeight;
   }
-  /**
-   * 最终以真实绘制结果兜底，防止章节边界、沉浸模式高度变化或字体取整让最后一行探出底部。
-   * 多段页面优先退掉最后一段；单个长段才二分截断，避免页面被整段清空。
-   */
+  /** 最终以真实绘制结果兜底，尽量只截短最后一段，减少页底空白。 */
   trimPaintedPageToFit() {
     var _a, _b;
     let guard = 0;
@@ -437,8 +441,9 @@ var ReaderView = class extends import_obsidian.ItemView {
       const paraIndex = Number(last.dataset.paraIndex);
       const charOffset = Number(last.dataset.charOffset);
       if (!Number.isFinite(paraIndex) || !Number.isFinite(charOffset)) return;
-      const hasMultipleParagraphs = this.contentContainer.children.length > 1;
-      if (hasMultipleParagraphs) {
+      const paragraphEnd = paraIndex === this.currentPageEnd.paraIndex ? this.currentPageEnd.charOffset : (_b = (_a = this.paragraphs[paraIndex]) == null ? void 0 : _a.length) != null ? _b : charOffset;
+      const visibleLength = Math.max(0, paragraphEnd - charOffset);
+      if (visibleLength <= 1) {
         const nextEnd = this.clampPosition({ paraIndex, charOffset });
         if (this.comparePositions(nextEnd, this.currentPageStart) <= 0) return;
         this.currentPageEnd = nextEnd;
@@ -446,9 +451,6 @@ var ReaderView = class extends import_obsidian.ItemView {
         guard++;
         continue;
       }
-      const paragraphEnd = paraIndex === this.currentPageEnd.paraIndex ? this.currentPageEnd.charOffset : (_b = (_a = this.paragraphs[paraIndex]) == null ? void 0 : _a.length) != null ? _b : charOffset;
-      const visibleLength = Math.max(0, paragraphEnd - charOffset);
-      if (visibleLength <= 1) return;
       let low = 1;
       let high = visibleLength;
       let best = 0;
@@ -463,7 +465,14 @@ var ReaderView = class extends import_obsidian.ItemView {
           low = mid + 1;
         }
       }
-      if (best <= 0) return;
+      if (best <= 0) {
+        const nextEnd = this.clampPosition({ paraIndex, charOffset });
+        if (this.comparePositions(nextEnd, this.currentPageStart) <= 0) return;
+        this.currentPageEnd = nextEnd;
+        this.paintPage(this.currentPageStart, this.currentPageEnd);
+        guard++;
+        continue;
+      }
       this.currentPageEnd = this.clampPosition({ paraIndex, charOffset: charOffset + best });
       this.paintPage(this.currentPageStart, this.currentPageEnd);
       guard++;
@@ -481,7 +490,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (measurableLength <= 0) return 0;
     const style = getComputedStyle(this.contentContainer);
     const bottomPadding = parseFloat(style.paddingBottom || "0") || 0;
-    const bottomGuard = 3;
+    const bottomGuard = 1;
     const bottomLimit = this.contentContainer.getBoundingClientRect().bottom - bottomPadding - bottomGuard;
     const range = document.createRange();
     let lastLineTop = Number.NaN;
@@ -666,9 +675,9 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.tocSidebar.classList.remove("puffs-hidden");
     this.setSearchMode(mode === "search");
     if (mode === "search") {
+      this.clearSearchInput();
       requestAnimationFrame(() => {
         this.searchInput.focus();
-        this.searchInput.select();
       });
     }
   }
@@ -686,6 +695,14 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (!enabled) {
       this.readingArea.focus();
     }
+  }
+  clearSearchInput() {
+    this.searchQuery = "";
+    this.searchResults = [];
+    this.searchInput.value = "";
+    this.searchInfoEl.textContent = "";
+    this.searchResultsEl.empty();
+    this.renderCurrentPage();
   }
   performSearch(query) {
     this.searchQuery = query.trim();
@@ -755,7 +772,10 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.searchJumpBackPos = null;
     this.searchJumpPageTurns = 0;
     this.searchBackBtn.classList.add("puffs-hidden");
-    this.jumpToPosition(target);
+    this.currentPageStart = this.clampPosition(target);
+    this.pageBackStack = [];
+    this.renderCurrentPage();
+    this.readingArea.focus();
   }
   recordPageTurnAfterSearchJump() {
     if (!this.searchJumpBackPos) return;
@@ -768,12 +788,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.searchJumpBackPos = null;
     this.searchJumpPageTurns = 0;
     this.searchBackBtn.classList.add("puffs-hidden");
-    this.searchQuery = "";
-    this.searchResults = [];
-    this.searchInput.value = "";
-    this.searchInfoEl.textContent = "";
-    this.searchResultsEl.empty();
-    this.renderCurrentPage();
+    this.clearSearchInput();
   }
   refreshTypographyPanel() {
     var _a;
@@ -860,6 +875,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.contentContainer.style.setProperty("--puffs-padding-top", `${s.paddingTop}px`);
     this.contentContainer.style.setProperty("--puffs-padding-bottom", `${s.paddingBottom}px`);
     this.rootEl.style.setProperty("--puffs-sidebar-width", `${s.sidebarWidth}px`);
+    this.rootEl.style.setProperty("--puffs-sidebar-transition", `${s.sidebarTransitionMs}ms`);
     this.rootEl.style.setProperty("--puffs-toc-font-size", `${s.tocFontSize}px`);
     if (floatingButtonColor) this.rootEl.style.setProperty("--puffs-floating-button-color", floatingButtonColor);
     else this.rootEl.style.removeProperty("--puffs-floating-button-color");
@@ -909,9 +925,13 @@ var ReaderView = class extends import_obsidian.ItemView {
     return (_a = this.getBookSettings().tocRegex) != null ? _a : this.plugin.settings.tocRegex;
   }
   normalizeChapterNumber(raw) {
-    if (/^\d+$/.test(raw)) return raw;
+    if (/^\d+$/.test(raw)) return String(Number(raw));
     const parsed = this.parseChineseNumber(raw);
     return parsed > 0 ? String(parsed) : raw;
+  }
+  getChapterStartingAt(paraIndex) {
+    var _a;
+    return (_a = this.chapters.find((chapter) => chapter.startParaIndex === paraIndex)) != null ? _a : null;
   }
   parseChineseNumber(raw) {
     const digits = {
@@ -1057,6 +1077,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     this.addNumberSetting("\u6B63\u6587\u9876\u90E8\u95F4\u8DDD", "\u6B63\u6587\u5185\u5BB9\u4E0E\u9875\u9762\u9876\u90E8\u7684\u8DDD\u79BB (px)", "paddingTop", 0, 180, 1, "px");
     this.addNumberSetting("\u6B63\u6587\u5E95\u90E8\u95F4\u8DDD", "\u6B63\u6587\u5185\u5BB9\u4E0E\u9875\u9762\u5E95\u90E8\u7684\u8DDD\u79BB (px)", "paddingBottom", 0, 200, 1, "px");
     this.addNumberSetting("\u5DE6\u4FA7\u680F\u5BBD\u5EA6", "\u76EE\u5F55\u548C\u5168\u6587\u641C\u7D22\u4FA7\u680F\u5BBD\u5EA6 (px)", "sidebarWidth", 220, 520, 1, "px");
+    this.addNumberSetting("\u4FA7\u680F\u8FC7\u6E21\u901F\u5EA6", "\u76EE\u5F55\u548C\u5168\u6587\u641C\u7D22\u4FA7\u680F\u5C55\u5F00/\u6536\u8D77\u52A8\u753B\u65F6\u957F (ms)", "sidebarTransitionMs", 0, 800, 10, "ms");
     this.addNumberSetting("\u76EE\u5F55\u5B57\u4F53\u5927\u5C0F", "\u5DE6\u4FA7\u76EE\u5F55\u6761\u76EE\u7684\u5B57\u4F53\u5927\u5C0F (px)", "tocFontSize", 11, 20, 1, "px");
     this.addTextSetting("\u5B57\u4F53\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 51,51,51\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "fontColor", "\u4F8B\u5982 51,51,51");
     this.addTextSetting("\u4E66\u7C4D\u80CC\u666F\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 233,216,188\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "backgroundColor", "\u4F8B\u5982 233,216,188");
