@@ -77,6 +77,14 @@
   border-color: transparent;
 }
 
+.puffs-floating-btn,
+.puffs-floating-btn:hover {
+  background: var(--puffs-bg-color) !important;
+  background-color: var(--puffs-bg-color) !important;
+  color: var(--text-muted);
+  border-color: transparent;
+}
+
 .puffs-floating-controls {
   position: absolute;
   top: 10px;
@@ -266,6 +274,8 @@
 
 .puffs-page-chapter {
   top: var(--puffs-chapter-meta-top);
+  color: var(--puffs-chapter-meta-color, var(--text-muted));
+  font-size: var(--puffs-chapter-meta-size);
 }
 
 .puffs-page-progress {

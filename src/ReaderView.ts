@@ -52,6 +52,7 @@ export class ReaderView extends ItemView {
   private currentPageEnd: ReaderPosition = { paraIndex: 0, charOffset: 0 };
   private pageBackStack: ReaderPosition[] = [];
   private searchJumpBackPos: ReaderPosition | null = null;
+  private searchJumpPageTurns = 0;
 
   private isTocOpen = false;
   private isSearchMode = false;
@@ -119,6 +120,12 @@ export class ReaderView extends ItemView {
     this.openSidebar('search');
   }
 
+  /** 全局设置面板保存后调用，让已打开阅读器立即使用新排版。 */
+  refreshSettingsFromGlobal(): void {
+    this.applyTypography();
+    this.renderCurrentPage();
+  }
+
   private buildUI(): void {
     const ce = this.contentEl;
     ce.empty();
@@ -141,7 +148,7 @@ export class ReaderView extends ItemView {
     this.tocTitleEl = header.createSpan({ text: '目录' });
     this.tocModeBtn = header.createEl('button', {
       cls: 'puffs-icon-btn puffs-toc-search-btn',
-      attr: { 'aria-label': '全文搜索' },
+      attr: { 'aria-label': '全书搜索' },
     });
     setIcon(this.tocModeBtn, 'search');
     this.tocModeBtn.addEventListener('click', () => this.toggleSearchMode());
@@ -152,12 +159,12 @@ export class ReaderView extends ItemView {
     const searchHeader = this.searchPaneEl.createDiv({ cls: 'puffs-search-header' });
     this.searchInput = searchHeader.createEl('input', {
       cls: 'puffs-search-input',
-      attr: { type: 'text', placeholder: '搜索当前书籍...' },
+      attr: { type: 'text', placeholder: '全书搜索' },
     });
     this.searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        this.setSearchMode(false);
+        e.stopPropagation();
       }
     });
     this.searchInput.addEventListener('input', () => {
@@ -178,14 +185,14 @@ export class ReaderView extends ItemView {
 
     this.floatingControls = this.readingArea.createDiv({ cls: 'puffs-floating-controls' });
     const tocBtn = this.floatingControls.createEl('button', {
-      cls: 'puffs-icon-btn',
+      cls: 'puffs-icon-btn puffs-floating-btn',
       attr: { 'aria-label': '目录侧边栏' },
     });
     setIcon(tocBtn, 'list');
     tocBtn.addEventListener('click', () => this.toggleToc());
 
     this.settingsBtn = this.floatingControls.createEl('button', {
-      cls: 'puffs-icon-btn',
+      cls: 'puffs-icon-btn puffs-floating-btn',
       attr: { 'aria-label': '书籍设置' },
     });
     setIcon(this.settingsBtn, 'settings');
@@ -201,7 +208,7 @@ export class ReaderView extends ItemView {
     this.contentContainer = this.readingArea.createDiv({ cls: 'puffs-page-content' });
 
     this.readingArea.addEventListener('keydown', (e) => this.handleKeydown(e));
-    this.readingArea.addEventListener('pointerdown', (e) => this.closeTypographyOnOutsideClick(e));
+    this.readingArea.addEventListener('pointerdown', (e) => this.closePanelsOnOutsideClick(e));
     this.readingArea.addEventListener('wheel', (e) => {
       e.preventDefault();
       if (Math.abs(e.deltaY) < 10) return;
@@ -456,6 +463,8 @@ export class ReaderView extends ItemView {
   private findLastCompleteLineOffset(para: HTMLElement, text: string): number {
     const node = para.firstChild;
     if (!node || node.nodeType !== Node.TEXT_NODE || text.length === 0) return 0;
+    const measurableLength = Math.min(text.length, node.textContent?.length ?? 0);
+    if (measurableLength <= 0) return 0;
 
     const style = getComputedStyle(this.contentContainer);
     const bottomPadding = parseFloat(style.paddingBottom || '0') || 0;
@@ -465,7 +474,7 @@ export class ReaderView extends ItemView {
     let lastLineBottom = 0;
     let lastCompleteOffset = 0;
 
-    for (let i = 0; i < text.length; i++) {
+    for (let i = 0; i < measurableLength; i++) {
       range.setStart(node, i);
       range.setEnd(node, i + 1);
       const rect = range.getBoundingClientRect();
@@ -481,7 +490,7 @@ export class ReaderView extends ItemView {
       lastLineBottom = rect.bottom;
     }
 
-    if (lastLineBottom <= bottomLimit) lastCompleteOffset = text.length;
+    if (lastLineBottom <= bottomLimit) lastCompleteOffset = measurableLength;
     range.detach();
     return lastCompleteOffset;
   }
@@ -491,6 +500,7 @@ export class ReaderView extends ItemView {
     if (this.currentPageEnd.paraIndex >= this.paragraphs.length) return;
     this.pageBackStack.push({ ...this.currentPageStart });
     this.currentPageStart = this.clampPosition(this.currentPageEnd);
+    this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
   }
@@ -498,6 +508,7 @@ export class ReaderView extends ItemView {
   private pageUp(): void {
     if (this.currentPageStart.paraIndex === 0 && this.currentPageStart.charOffset === 0) return;
     this.currentPageStart = this.pageBackStack.pop() ?? this.findPreviousPageStart(this.currentPageStart);
+    this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
   }
@@ -578,6 +589,11 @@ export class ReaderView extends ItemView {
     const customRegex = this.getBookSettings().chapterTitleRegex ?? DEFAULT_CHAPTER_TITLE_REGEX;
     try {
       const match = line.match(new RegExp(customRegex));
+      if (match?.[1] && match?.[2] && /^[章节回卷集部篇]$/.test(match[2])) {
+        const numberText = this.normalizeChapterNumber(match[1]);
+        const titleText = (match[3] ?? '').trim();
+        return titleText ? `第${numberText}${match[2]} ${titleText}` : `第${numberText}${match[2]}`;
+      }
       const captured = match?.slice(1).find((part) => part && part.trim().length > 0)?.trim();
       if (captured) return captured;
     } catch {
@@ -602,7 +618,6 @@ export class ReaderView extends ItemView {
 
     this.chapters.forEach((ch) => {
       const item = this.tocListEl.createDiv({ cls: 'puffs-toc-item', text: ch.title });
-      item.setAttribute('title', ch.rawTitle);
       item.addEventListener('click', () => {
         this.jumpToPosition({ paraIndex: ch.startParaIndex, charOffset: 0 });
         this.setSearchMode(false);
@@ -642,12 +657,16 @@ export class ReaderView extends ItemView {
 
   private toggleToc(): void {
     if (this.isTocOpen) {
-      this.isTocOpen = false;
-      this.setSearchMode(false);
-      this.tocSidebar.classList.add('puffs-hidden');
+      this.closeSidebar();
     } else {
       this.openSidebar('toc');
     }
+  }
+
+  private closeSidebar(): void {
+    this.isTocOpen = false;
+    this.setSearchMode(false);
+    this.tocSidebar.classList.add('puffs-hidden');
   }
 
   private openSidebar(mode: 'toc' | 'search'): void {
@@ -668,10 +687,10 @@ export class ReaderView extends ItemView {
 
   private setSearchMode(enabled: boolean): void {
     this.isSearchMode = enabled;
-    this.tocTitleEl.textContent = enabled ? '全文搜索' : '目录';
+    this.tocTitleEl.textContent = enabled ? '全书搜索' : '目录';
     setIcon(this.tocModeBtn, enabled ? 'list' : 'search');
-    this.tocModeBtn.setAttribute('aria-label', enabled ? '返回目录' : '全文搜索');
-    this.tocModeBtn.setAttribute('title', enabled ? '返回目录' : '全文搜索');
+    this.tocModeBtn.setAttribute('aria-label', enabled ? '返回目录' : '全书搜索');
+    this.tocModeBtn.removeAttribute('title');
     this.tocListEl.classList.toggle('puffs-hidden', enabled);
     this.searchPaneEl.classList.toggle('puffs-hidden', !enabled);
     if (!enabled) {
@@ -734,6 +753,7 @@ export class ReaderView extends ItemView {
       preview.innerHTML = this.buildSearchPreview(match);
       card.addEventListener('click', () => {
         this.searchJumpBackPos = { ...this.currentPageStart };
+        this.searchJumpPageTurns = 0;
         this.searchBackBtn.classList.remove('puffs-hidden');
         this.jumpToPosition({ paraIndex: match.paraIndex, charOffset: match.startOffset });
       });
@@ -741,7 +761,7 @@ export class ReaderView extends ItemView {
   }
 
   private buildSearchPreview(match: SearchMatch): string {
-    const text = this.paragraphs[match.paraIndex].trim();
+    const text = this.paragraphs[match.paraIndex];
     const start = Math.max(0, match.startOffset - 56);
     const end = Math.min(text.length, match.startOffset + match.length + 56);
     const localStart = match.startOffset - start;
@@ -754,8 +774,19 @@ export class ReaderView extends ItemView {
     if (!this.searchJumpBackPos) return;
     const target = this.searchJumpBackPos;
     this.searchJumpBackPos = null;
+    this.searchJumpPageTurns = 0;
     this.searchBackBtn.classList.add('puffs-hidden');
     this.jumpToPosition(target);
+  }
+
+  private recordPageTurnAfterSearchJump(): void {
+    if (!this.searchJumpBackPos) return;
+    this.searchJumpPageTurns += 1;
+    if (this.searchJumpPageTurns >= 5) {
+      this.searchJumpBackPos = null;
+      this.searchJumpPageTurns = 0;
+      this.searchBackBtn.classList.add('puffs-hidden');
+    }
   }
 
   private refreshTypographyPanel(): void {
@@ -765,7 +796,10 @@ export class ReaderView extends ItemView {
 
     const title = p.createDiv({ cls: 'puffs-typo-title' });
     title.createSpan({ text: '书籍设置' });
-    this.encodingBtn = title.createEl('button', {
+
+    const encodingRow = p.createDiv({ cls: 'puffs-typo-row' });
+    encodingRow.createSpan({ cls: 'puffs-typo-label', text: '编码方式' });
+    this.encodingBtn = encodingRow.createEl('button', {
       cls: 'puffs-icon-btn puffs-encoding-btn',
       text: this.currentEncoding.toUpperCase(),
       attr: { 'aria-label': '切换编码' },
@@ -883,12 +917,15 @@ export class ReaderView extends ItemView {
     this.typographyPanel.classList.add('puffs-hidden');
   }
 
-  private closeTypographyOnOutsideClick(e: PointerEvent): void {
-    if (!this.isTypographyOpen) return;
+  private closePanelsOnOutsideClick(e: PointerEvent): void {
     const target = e.target as Node | null;
     if (!target) return;
-    if (this.typographyPanel.contains(target) || this.settingsBtn.contains(target)) return;
-    this.closeTypography();
+    if (this.isTypographyOpen && !this.typographyPanel.contains(target) && !this.settingsBtn.contains(target)) {
+      this.closeTypography();
+    }
+    if (this.isTocOpen && !this.tocSidebar.contains(target) && !this.floatingControls.contains(target)) {
+      this.closeSidebar();
+    }
   }
 
   private getBookSettings(): BookSettings {
@@ -904,6 +941,52 @@ export class ReaderView extends ItemView {
     return this.getBookSettings().tocRegex ?? this.plugin.settings.tocRegex;
   }
 
+  private normalizeChapterNumber(raw: string): string {
+    if (/^\d+$/.test(raw)) return raw;
+    const parsed = this.parseChineseNumber(raw);
+    return parsed > 0 ? String(parsed) : raw;
+  }
+
+  private parseChineseNumber(raw: string): number {
+    const digits: Record<string, number> = {
+      零: 0,
+      〇: 0,
+      一: 1,
+      二: 2,
+      两: 2,
+      三: 3,
+      四: 4,
+      五: 5,
+      六: 6,
+      七: 7,
+      八: 8,
+      九: 9,
+    };
+    const smallUnits: Record<string, number> = { 十: 10, 百: 100, 千: 1000 };
+    const largeUnits: Record<string, number> = { 万: 10000, 亿: 100000000 };
+    let total = 0;
+    let section = 0;
+    let number = 0;
+
+    for (const char of raw) {
+      if (char in digits) {
+        number = digits[char];
+      } else if (char in smallUnits) {
+        section += (number || 1) * smallUnits[char];
+        number = 0;
+      } else if (char in largeUnits) {
+        section += number;
+        total += (section || 1) * largeUnits[char];
+        section = 0;
+        number = 0;
+      } else {
+        return 0;
+      }
+    }
+
+    return total + section + number;
+  }
+
   private updateBookSettings(partial: BookSettings): void {
     if (!this.currentFile) return;
     const next = {
@@ -916,6 +999,13 @@ export class ReaderView extends ItemView {
   private bindGlobalKeys(): void {
     this.boundGlobalKeydown = (e: KeyboardEvent) => {
       if (!this.contentEl.isConnected) return;
+      if (e.key === 'Escape') {
+        if (!this.isReaderKeyboardActive()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
       if (!this.matchesSearchHotkey(e)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -954,10 +1044,15 @@ export class ReaderView extends ItemView {
       e.preventDefault();
       this.pageUp();
     } else if (e.key === 'Escape') {
-      if (this.isTypographyOpen) this.closeTypography();
-      else if (this.isSearchMode) this.setSearchMode(false);
-      else if (this.isTocOpen) this.toggleToc();
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
     }
+  }
+
+  private isReaderKeyboardActive(): boolean {
+    const active = document.activeElement;
+    return this.app.workspace.activeLeaf === this.leaf || !!active && this.contentEl.contains(active);
   }
 
   private scheduleProgressSave(): void {

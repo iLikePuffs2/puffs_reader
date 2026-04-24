@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, SliderComponent, TextComponent } from 'obsidian';
 import PuffsReaderPlugin from './main';
 import { DEFAULT_SETTINGS } from './types';
 
@@ -49,6 +49,7 @@ export class SettingsTab extends PluginSettingTab {
         toggle.setValue(this.plugin.settings.showProgress).onChange(async (v) => {
           this.plugin.settings.showProgress = v;
           await this.plugin.savePluginData();
+          this.refreshOpenReaders();
         }),
       );
 
@@ -59,6 +60,7 @@ export class SettingsTab extends PluginSettingTab {
         toggle.setValue(this.plugin.settings.removeExtraBlankLines).onChange(async (v) => {
           this.plugin.settings.removeExtraBlankLines = v;
           await this.plugin.savePluginData();
+          this.refreshOpenReaders();
         }),
       );
 
@@ -80,6 +82,7 @@ export class SettingsTab extends PluginSettingTab {
           .onChange(async (v) => {
             this.plugin.settings.defaultEncoding = v;
             await this.plugin.savePluginData();
+            this.refreshOpenReaders();
           }),
       );
 
@@ -100,28 +103,48 @@ export class SettingsTab extends PluginSettingTab {
     step: number,
     unit: string,
   ): void {
+    let sliderControl: SliderComponent | null = null;
+    let textControl: TextComponent | null = null;
+    let isSyncing = false;
+
+    const clamp = (value: number): number => Math.min(max, Math.max(min, value));
+    const format = (value: number): string => String(value);
+    const syncControls = (value: number): void => {
+      isSyncing = true;
+      sliderControl?.setValue(value);
+      textControl?.setValue(format(value));
+      isSyncing = false;
+    };
+    const save = async (value: number): Promise<void> => {
+      const next = clamp(value);
+      this.plugin.settings[key] = next;
+      syncControls(next);
+      await this.plugin.savePluginData();
+      this.refreshOpenReaders();
+    };
+
     new Setting(this.containerEl)
       .setName(name)
       .setDesc(desc)
       .addSlider((slider) =>
-        slider
+        (sliderControl = slider)
           .setLimits(min, max, step)
           .setValue(this.plugin.settings[key])
           .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings[key] = v;
-            await this.plugin.savePluginData();
+          .onChange((v) => {
+            if (isSyncing) return;
+            save(v);
           }),
       )
       .addText((text) =>
-        text
+        (textControl = text)
           .setValue(String(this.plugin.settings[key]))
           .setPlaceholder(unit)
-          .onChange(async (v) => {
+          .onChange((v) => {
+            if (isSyncing) return;
             const n = Number(v);
             if (Number.isNaN(n)) return;
-            this.plugin.settings[key] = Math.min(max, Math.max(min, n));
-            await this.plugin.savePluginData();
+            save(n);
           }),
       );
   }
@@ -143,7 +166,15 @@ export class SettingsTab extends PluginSettingTab {
             const fallback = key === 'searchHotkey' ? DEFAULT_SETTINGS.searchHotkey : '';
             this.plugin.settings[key] = v.trim() || fallback;
             await this.plugin.savePluginData();
+            this.refreshOpenReaders();
           }),
       );
+  }
+
+  private refreshOpenReaders(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType('puffs-reader-view')) {
+      const view = leaf.view as unknown as { refreshSettingsFromGlobal?: () => void };
+      view.refreshSettingsFromGlobal?.();
+    }
   }
 }

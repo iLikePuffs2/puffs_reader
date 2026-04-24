@@ -106,8 +106,8 @@ export const SUPPORTED_ENCODINGS = [
   { value: 'euc-kr', label: 'EUC-KR' },
 ];
 
-export const DEFAULT_TOC_REGEX = '^\\s*第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇].*$';
-export const DEFAULT_CHAPTER_TITLE_REGEX = '^\\s*(?:第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇])\\s*(.*)$';
+export const DEFAULT_TOC_REGEX = '^\\s*第[零〇一二三四五六七八九十百千万亿两\\d]+[章节回卷集部篇].*$';
+export const DEFAULT_CHAPTER_TITLE_REGEX = '^\\s*第([零〇一二三四五六七八九十百千万亿两\\d]+)([章节回卷集部篇])\\s*(.*)$';
 
 /** 默认设置 */
 export const DEFAULT_SETTINGS: ReaderSettings = {

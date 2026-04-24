@@ -38,8 +38,8 @@ var SUPPORTED_ENCODINGS = [
   { value: "shift_jis", label: "Shift_JIS" },
   { value: "euc-kr", label: "EUC-KR" }
 ];
-var DEFAULT_TOC_REGEX = "^\\s*\u7B2C[\u96F6\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*$";
-var DEFAULT_CHAPTER_TITLE_REGEX = "^\\s*(?:\u7B2C[\u96F6\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7])\\s*(.*)$";
+var DEFAULT_TOC_REGEX = "^\\s*\u7B2C[\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*$";
+var DEFAULT_CHAPTER_TITLE_REGEX = "^\\s*\u7B2C([\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+)([\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7])\\s*(.*)$";
 var DEFAULT_SETTINGS = {
   fontSize: 18,
   lineHeight: 1.8,
@@ -83,6 +83,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.currentPageEnd = { paraIndex: 0, charOffset: 0 };
     this.pageBackStack = [];
     this.searchJumpBackPos = null;
+    this.searchJumpPageTurns = 0;
     this.isTocOpen = false;
     this.isSearchMode = false;
     this.isTypographyOpen = false;
@@ -138,6 +139,11 @@ var ReaderView = class extends import_obsidian.ItemView {
   openSearch() {
     this.openSidebar("search");
   }
+  /** 全局设置面板保存后调用，让已打开阅读器立即使用新排版。 */
+  refreshSettingsFromGlobal() {
+    this.applyTypography();
+    this.renderCurrentPage();
+  }
   buildUI() {
     const ce = this.contentEl;
     ce.empty();
@@ -156,7 +162,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.tocTitleEl = header.createSpan({ text: "\u76EE\u5F55" });
     this.tocModeBtn = header.createEl("button", {
       cls: "puffs-icon-btn puffs-toc-search-btn",
-      attr: { "aria-label": "\u5168\u6587\u641C\u7D22" }
+      attr: { "aria-label": "\u5168\u4E66\u641C\u7D22" }
     });
     (0, import_obsidian.setIcon)(this.tocModeBtn, "search");
     this.tocModeBtn.addEventListener("click", () => this.toggleSearchMode());
@@ -165,12 +171,12 @@ var ReaderView = class extends import_obsidian.ItemView {
     const searchHeader = this.searchPaneEl.createDiv({ cls: "puffs-search-header" });
     this.searchInput = searchHeader.createEl("input", {
       cls: "puffs-search-input",
-      attr: { type: "text", placeholder: "\u641C\u7D22\u5F53\u524D\u4E66\u7C4D..." }
+      attr: { type: "text", placeholder: "\u5168\u4E66\u641C\u7D22" }
     });
     this.searchInput.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        this.setSearchMode(false);
+        e.stopPropagation();
       }
     });
     this.searchInput.addEventListener("input", () => {
@@ -187,13 +193,13 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.progressTitleEl = this.readingArea.createDiv({ cls: "puffs-page-progress" });
     this.floatingControls = this.readingArea.createDiv({ cls: "puffs-floating-controls" });
     const tocBtn = this.floatingControls.createEl("button", {
-      cls: "puffs-icon-btn",
+      cls: "puffs-icon-btn puffs-floating-btn",
       attr: { "aria-label": "\u76EE\u5F55\u4FA7\u8FB9\u680F" }
     });
     (0, import_obsidian.setIcon)(tocBtn, "list");
     tocBtn.addEventListener("click", () => this.toggleToc());
     this.settingsBtn = this.floatingControls.createEl("button", {
-      cls: "puffs-icon-btn",
+      cls: "puffs-icon-btn puffs-floating-btn",
       attr: { "aria-label": "\u4E66\u7C4D\u8BBE\u7F6E" }
     });
     (0, import_obsidian.setIcon)(this.settingsBtn, "settings");
@@ -206,7 +212,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.searchBackBtn.addEventListener("click", () => this.returnFromSearchJump());
     this.contentContainer = this.readingArea.createDiv({ cls: "puffs-page-content" });
     this.readingArea.addEventListener("keydown", (e) => this.handleKeydown(e));
-    this.readingArea.addEventListener("pointerdown", (e) => this.closeTypographyOnOutsideClick(e));
+    this.readingArea.addEventListener("pointerdown", (e) => this.closePanelsOnOutsideClick(e));
     this.readingArea.addEventListener("wheel", (e) => {
       e.preventDefault();
       if (Math.abs(e.deltaY) < 10) return;
@@ -415,8 +421,11 @@ var ReaderView = class extends import_obsidian.ItemView {
    * 通过 Range 读取浏览器实际换行后的矩形，避免使用估算行高造成翻页漂移。
    */
   findLastCompleteLineOffset(para, text) {
+    var _a, _b;
     const node = para.firstChild;
     if (!node || node.nodeType !== Node.TEXT_NODE || text.length === 0) return 0;
+    const measurableLength = Math.min(text.length, (_b = (_a = node.textContent) == null ? void 0 : _a.length) != null ? _b : 0);
+    if (measurableLength <= 0) return 0;
     const style = getComputedStyle(this.contentContainer);
     const bottomPadding = parseFloat(style.paddingBottom || "0") || 0;
     const bottomLimit = this.contentContainer.getBoundingClientRect().bottom - bottomPadding;
@@ -424,7 +433,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     let lastLineTop = Number.NaN;
     let lastLineBottom = 0;
     let lastCompleteOffset = 0;
-    for (let i = 0; i < text.length; i++) {
+    for (let i = 0; i < measurableLength; i++) {
       range.setStart(node, i);
       range.setEnd(node, i + 1);
       const rect = range.getBoundingClientRect();
@@ -437,7 +446,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       lastLineTop = top;
       lastLineBottom = rect.bottom;
     }
-    if (lastLineBottom <= bottomLimit) lastCompleteOffset = text.length;
+    if (lastLineBottom <= bottomLimit) lastCompleteOffset = measurableLength;
     range.detach();
     return lastCompleteOffset;
   }
@@ -446,6 +455,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (this.currentPageEnd.paraIndex >= this.paragraphs.length) return;
     this.pageBackStack.push({ ...this.currentPageStart });
     this.currentPageStart = this.clampPosition(this.currentPageEnd);
+    this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
   }
@@ -453,6 +463,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     var _a;
     if (this.currentPageStart.paraIndex === 0 && this.currentPageStart.charOffset === 0) return;
     this.currentPageStart = (_a = this.pageBackStack.pop()) != null ? _a : this.findPreviousPageStart(this.currentPageStart);
+    this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
   }
@@ -521,11 +532,16 @@ var ReaderView = class extends import_obsidian.ItemView {
     }
   }
   extractChapterTitle(line) {
-    var _a, _b;
+    var _a, _b, _c;
     const customRegex = (_a = this.getBookSettings().chapterTitleRegex) != null ? _a : DEFAULT_CHAPTER_TITLE_REGEX;
     try {
       const match = line.match(new RegExp(customRegex));
-      const captured = (_b = match == null ? void 0 : match.slice(1).find((part) => part && part.trim().length > 0)) == null ? void 0 : _b.trim();
+      if ((match == null ? void 0 : match[1]) && (match == null ? void 0 : match[2]) && /^[章节回卷集部篇]$/.test(match[2])) {
+        const numberText = this.normalizeChapterNumber(match[1]);
+        const titleText = ((_b = match[3]) != null ? _b : "").trim();
+        return titleText ? `\u7B2C${numberText}${match[2]} ${titleText}` : `\u7B2C${numberText}${match[2]}`;
+      }
+      const captured = (_c = match == null ? void 0 : match.slice(1).find((part) => part && part.trim().length > 0)) == null ? void 0 : _c.trim();
       if (captured) return captured;
     } catch (e) {
     }
@@ -546,7 +562,6 @@ var ReaderView = class extends import_obsidian.ItemView {
     }
     this.chapters.forEach((ch) => {
       const item = this.tocListEl.createDiv({ cls: "puffs-toc-item", text: ch.title });
-      item.setAttribute("title", ch.rawTitle);
       item.addEventListener("click", () => {
         this.jumpToPosition({ paraIndex: ch.startParaIndex, charOffset: 0 });
         this.setSearchMode(false);
@@ -582,12 +597,15 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   toggleToc() {
     if (this.isTocOpen) {
-      this.isTocOpen = false;
-      this.setSearchMode(false);
-      this.tocSidebar.classList.add("puffs-hidden");
+      this.closeSidebar();
     } else {
       this.openSidebar("toc");
     }
+  }
+  closeSidebar() {
+    this.isTocOpen = false;
+    this.setSearchMode(false);
+    this.tocSidebar.classList.add("puffs-hidden");
   }
   openSidebar(mode) {
     this.isTocOpen = true;
@@ -605,10 +623,10 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   setSearchMode(enabled) {
     this.isSearchMode = enabled;
-    this.tocTitleEl.textContent = enabled ? "\u5168\u6587\u641C\u7D22" : "\u76EE\u5F55";
+    this.tocTitleEl.textContent = enabled ? "\u5168\u4E66\u641C\u7D22" : "\u76EE\u5F55";
     (0, import_obsidian.setIcon)(this.tocModeBtn, enabled ? "list" : "search");
-    this.tocModeBtn.setAttribute("aria-label", enabled ? "\u8FD4\u56DE\u76EE\u5F55" : "\u5168\u6587\u641C\u7D22");
-    this.tocModeBtn.setAttribute("title", enabled ? "\u8FD4\u56DE\u76EE\u5F55" : "\u5168\u6587\u641C\u7D22");
+    this.tocModeBtn.setAttribute("aria-label", enabled ? "\u8FD4\u56DE\u76EE\u5F55" : "\u5168\u4E66\u641C\u7D22");
+    this.tocModeBtn.removeAttribute("title");
     this.tocListEl.classList.toggle("puffs-hidden", enabled);
     this.searchPaneEl.classList.toggle("puffs-hidden", !enabled);
     if (!enabled) {
@@ -662,13 +680,14 @@ var ReaderView = class extends import_obsidian.ItemView {
       preview.innerHTML = this.buildSearchPreview(match);
       card.addEventListener("click", () => {
         this.searchJumpBackPos = { ...this.currentPageStart };
+        this.searchJumpPageTurns = 0;
         this.searchBackBtn.classList.remove("puffs-hidden");
         this.jumpToPosition({ paraIndex: match.paraIndex, charOffset: match.startOffset });
       });
     });
   }
   buildSearchPreview(match) {
-    const text = this.paragraphs[match.paraIndex].trim();
+    const text = this.paragraphs[match.paraIndex];
     const start = Math.max(0, match.startOffset - 56);
     const end = Math.min(text.length, match.startOffset + match.length + 56);
     const localStart = match.startOffset - start;
@@ -680,8 +699,18 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (!this.searchJumpBackPos) return;
     const target = this.searchJumpBackPos;
     this.searchJumpBackPos = null;
+    this.searchJumpPageTurns = 0;
     this.searchBackBtn.classList.add("puffs-hidden");
     this.jumpToPosition(target);
+  }
+  recordPageTurnAfterSearchJump() {
+    if (!this.searchJumpBackPos) return;
+    this.searchJumpPageTurns += 1;
+    if (this.searchJumpPageTurns >= 5) {
+      this.searchJumpBackPos = null;
+      this.searchJumpPageTurns = 0;
+      this.searchBackBtn.classList.add("puffs-hidden");
+    }
   }
   refreshTypographyPanel() {
     var _a;
@@ -690,7 +719,9 @@ var ReaderView = class extends import_obsidian.ItemView {
     const bookSettings = this.getBookSettings();
     const title = p.createDiv({ cls: "puffs-typo-title" });
     title.createSpan({ text: "\u4E66\u7C4D\u8BBE\u7F6E" });
-    this.encodingBtn = title.createEl("button", {
+    const encodingRow = p.createDiv({ cls: "puffs-typo-row" });
+    encodingRow.createSpan({ cls: "puffs-typo-label", text: "\u7F16\u7801\u65B9\u5F0F" });
+    this.encodingBtn = encodingRow.createEl("button", {
       cls: "puffs-icon-btn puffs-encoding-btn",
       text: this.currentEncoding.toUpperCase(),
       attr: { "aria-label": "\u5207\u6362\u7F16\u7801" }
@@ -789,12 +820,15 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.isTypographyOpen = false;
     this.typographyPanel.classList.add("puffs-hidden");
   }
-  closeTypographyOnOutsideClick(e) {
-    if (!this.isTypographyOpen) return;
+  closePanelsOnOutsideClick(e) {
     const target = e.target;
     if (!target) return;
-    if (this.typographyPanel.contains(target) || this.settingsBtn.contains(target)) return;
-    this.closeTypography();
+    if (this.isTypographyOpen && !this.typographyPanel.contains(target) && !this.settingsBtn.contains(target)) {
+      this.closeTypography();
+    }
+    if (this.isTocOpen && !this.tocSidebar.contains(target) && !this.floatingControls.contains(target)) {
+      this.closeSidebar();
+    }
   }
   getBookSettings() {
     if (!this.currentFile) return {};
@@ -808,6 +842,48 @@ var ReaderView = class extends import_obsidian.ItemView {
     var _a;
     return (_a = this.getBookSettings().tocRegex) != null ? _a : this.plugin.settings.tocRegex;
   }
+  normalizeChapterNumber(raw) {
+    if (/^\d+$/.test(raw)) return raw;
+    const parsed = this.parseChineseNumber(raw);
+    return parsed > 0 ? String(parsed) : raw;
+  }
+  parseChineseNumber(raw) {
+    const digits = {
+      \u96F6: 0,
+      "\u3007": 0,
+      \u4E00: 1,
+      \u4E8C: 2,
+      \u4E24: 2,
+      \u4E09: 3,
+      \u56DB: 4,
+      \u4E94: 5,
+      \u516D: 6,
+      \u4E03: 7,
+      \u516B: 8,
+      \u4E5D: 9
+    };
+    const smallUnits = { \u5341: 10, \u767E: 100, \u5343: 1e3 };
+    const largeUnits = { \u4E07: 1e4, \u4EBF: 1e8 };
+    let total = 0;
+    let section = 0;
+    let number = 0;
+    for (const char of raw) {
+      if (char in digits) {
+        number = digits[char];
+      } else if (char in smallUnits) {
+        section += (number || 1) * smallUnits[char];
+        number = 0;
+      } else if (char in largeUnits) {
+        section += number;
+        total += (section || 1) * largeUnits[char];
+        section = 0;
+        number = 0;
+      } else {
+        return 0;
+      }
+    }
+    return total + section + number;
+  }
   updateBookSettings(partial) {
     if (!this.currentFile) return;
     const next = {
@@ -819,6 +895,13 @@ var ReaderView = class extends import_obsidian.ItemView {
   bindGlobalKeys() {
     this.boundGlobalKeydown = (e) => {
       if (!this.contentEl.isConnected) return;
+      if (e.key === "Escape") {
+        if (!this.isReaderKeyboardActive()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
       if (!this.matchesSearchHotkey(e)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -849,10 +932,14 @@ var ReaderView = class extends import_obsidian.ItemView {
       e.preventDefault();
       this.pageUp();
     } else if (e.key === "Escape") {
-      if (this.isTypographyOpen) this.closeTypography();
-      else if (this.isSearchMode) this.setSearchMode(false);
-      else if (this.isTocOpen) this.toggleToc();
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
     }
+  }
+  isReaderKeyboardActive() {
+    const active = document.activeElement;
+    return this.app.workspace.activeLeaf === this.leaf || !!active && this.contentEl.contains(active);
   }
   scheduleProgressSave() {
     window.clearTimeout(this.progressSaveTimer);
@@ -919,12 +1006,14 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       (toggle) => toggle.setValue(this.plugin.settings.showProgress).onChange(async (v) => {
         this.plugin.settings.showProgress = v;
         await this.plugin.savePluginData();
+        this.refreshOpenReaders();
       })
     );
     new import_obsidian2.Setting(containerEl).setName("\u53BB\u9664\u591A\u4F59\u7A7A\u884C").setDesc("\u81EA\u52A8\u6E05\u7406 TXT \u4E2D\u8FDE\u7EED\u7684\u7A7A\u767D\u884C").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.removeExtraBlankLines).onChange(async (v) => {
         this.plugin.settings.removeExtraBlankLines = v;
         await this.plugin.savePluginData();
+        this.refreshOpenReaders();
       })
     );
     containerEl.createEl("h3", { text: "\u76EE\u5F55\u4E0E\u7F16\u7801" });
@@ -938,6 +1027,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       }).setValue(this.plugin.settings.defaultEncoding).onChange(async (v) => {
         this.plugin.settings.defaultEncoding = v;
         await this.plugin.savePluginData();
+        this.refreshOpenReaders();
       })
     );
     this.addTextSetting(
@@ -948,17 +1038,35 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     );
   }
   addNumberSetting(name, desc, key, min, max, step, unit) {
+    let sliderControl = null;
+    let textControl = null;
+    let isSyncing = false;
+    const clamp = (value) => Math.min(max, Math.max(min, value));
+    const format = (value) => String(value);
+    const syncControls = (value) => {
+      isSyncing = true;
+      sliderControl == null ? void 0 : sliderControl.setValue(value);
+      textControl == null ? void 0 : textControl.setValue(format(value));
+      isSyncing = false;
+    };
+    const save = async (value) => {
+      const next = clamp(value);
+      this.plugin.settings[key] = next;
+      syncControls(next);
+      await this.plugin.savePluginData();
+      this.refreshOpenReaders();
+    };
     new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addSlider(
-      (slider) => slider.setLimits(min, max, step).setValue(this.plugin.settings[key]).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings[key] = v;
-        await this.plugin.savePluginData();
+      (slider) => (sliderControl = slider).setLimits(min, max, step).setValue(this.plugin.settings[key]).setDynamicTooltip().onChange((v) => {
+        if (isSyncing) return;
+        save(v);
       })
     ).addText(
-      (text) => text.setValue(String(this.plugin.settings[key])).setPlaceholder(unit).onChange(async (v) => {
+      (text) => (textControl = text).setValue(String(this.plugin.settings[key])).setPlaceholder(unit).onChange((v) => {
+        if (isSyncing) return;
         const n = Number(v);
         if (Number.isNaN(n)) return;
-        this.plugin.settings[key] = Math.min(max, Math.max(min, n));
-        await this.plugin.savePluginData();
+        save(n);
       })
     );
   }
@@ -968,8 +1076,16 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
         const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : "";
         this.plugin.settings[key] = v.trim() || fallback;
         await this.plugin.savePluginData();
+        this.refreshOpenReaders();
       })
     );
+  }
+  refreshOpenReaders() {
+    var _a;
+    for (const leaf of this.app.workspace.getLeavesOfType("puffs-reader-view")) {
+      const view = leaf.view;
+      (_a = view.refreshSettingsFromGlobal) == null ? void 0 : _a.call(view);
+    }
   }
 };
 
