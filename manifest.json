@@ -1,9 +1,9 @@
 {
   "id": "puffs-reader",
-  "name": "Puffs Reader",
+  "name": "Puffs 阅读器",
   "version": "1.0.0",
-  "minAppVersion": "1.0.0",
-  "description": "A TXT novel reader for Obsidian with virtual scrolling, TOC extraction, encoding detection, and customizable typography.",
+  "minAppVersion": "1.12.7",
+  "description": "模仿 koodo reader 样式的小说阅读器",
   "author": "Puffs",
   "isDesktopOnly": true
 }
