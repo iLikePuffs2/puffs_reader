@@ -129,6 +129,7 @@ export class ReaderView extends ItemView {
 
   /** 搜索快捷键重复触发时，在打开/关闭搜索面板之间切换。 */
   toggleSearchFromHotkey(): void {
+    if (!this.shouldHandleSearchHotkey()) return;
     if (this.isTocOpen && this.isSearchMode) {
       this.closeSidebar();
       this.focusReader();
@@ -168,7 +169,6 @@ export class ReaderView extends ItemView {
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf === this.leaf) {
-          this.closeSidebar();
           this.focusReader();
         }
       }),
@@ -1185,6 +1185,7 @@ export class ReaderView extends ItemView {
         return;
       }
       if (!this.matchesSearchHotkey(e)) return;
+      if (!this.shouldHandleSearchHotkey()) return;
       e.preventDefault();
       e.stopPropagation();
       this.toggleSearchFromHotkey();
@@ -1231,6 +1232,11 @@ export class ReaderView extends ItemView {
   private isReaderKeyboardActive(): boolean {
     const active = document.activeElement;
     return this.app.workspace.activeLeaf === this.leaf || !!active && this.contentEl.contains(active);
+  }
+
+  private shouldHandleSearchHotkey(): boolean {
+    const active = document.activeElement;
+    return this.app.workspace.activeLeaf === this.leaf && !!active && this.contentEl.contains(active);
   }
 
   private scheduleProgressSave(): void {

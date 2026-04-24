@@ -76,7 +76,7 @@ export default class PuffsReaderPlugin extends Plugin {
       hotkeys: [{ modifiers: ['Ctrl'], key: 'f' }],
       callback: () => {
         const view = this.app.workspace.getActiveViewOfType(ReaderView);
-        if (view) view.openSearch();
+        if (view) view.toggleSearchFromHotkey();
       },
     });
 
