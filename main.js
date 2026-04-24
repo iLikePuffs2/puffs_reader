@@ -183,6 +183,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         if (leaf === this.leaf) {
+          this.closeSidebar();
           this.focusReader();
         }
       })
