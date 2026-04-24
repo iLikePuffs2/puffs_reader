@@ -358,8 +358,29 @@ var ReaderView = class extends import_obsidian.ItemView {
       }
       lines = collapsed;
     }
+    lines = this.removeBlankLinesAfterChapter(lines);
     while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
     return lines;
+  }
+  /** 章节标题后面的空行只会拉开章节名和正文第一段，这里直接清理掉。 */
+  removeBlankLinesAfterChapter(lines) {
+    const tocRegexText = this.getEffectiveTocRegex();
+    if (!tocRegexText) return lines;
+    let tocRegex;
+    try {
+      tocRegex = new RegExp(tocRegexText);
+    } catch (e) {
+      return lines;
+    }
+    const cleaned = [];
+    let previousWasChapter = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (previousWasChapter && trimmed === "") continue;
+      cleaned.push(line);
+      previousWasChapter = trimmed !== "" && tocRegex.test(trimmed);
+    }
+    return cleaned;
   }
   renderCurrentPage() {
     if (this.paragraphs.length === 0) {
