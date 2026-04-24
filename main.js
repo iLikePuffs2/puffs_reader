@@ -38,6 +38,8 @@ var SUPPORTED_ENCODINGS = [
   { value: "shift_jis", label: "Shift_JIS" },
   { value: "euc-kr", label: "EUC-KR" }
 ];
+var DEFAULT_TOC_REGEX = "^\\s*\u7B2C[\u96F6\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*$";
+var DEFAULT_CHAPTER_TITLE_REGEX = "^\\s*(?:\u7B2C[\u96F6\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7])\\s*(.*)$";
 var DEFAULT_SETTINGS = {
   fontSize: 18,
   lineHeight: 1.8,
@@ -49,9 +51,17 @@ var DEFAULT_SETTINGS = {
   paddingBottom: 40,
   fontColor: "",
   backgroundColor: "",
+  chapterMetaFontSize: 12,
+  chapterMetaColor: "",
+  chapterMetaTop: 10,
+  progressMetaFontSize: 12,
+  progressMetaColor: "",
+  progressMetaBottom: 10,
+  sidebarWidth: 272,
+  tocFontSize: 13,
   showProgress: true,
   removeExtraBlankLines: true,
-  tocRegex: "^\\s*\u7B2C[\u96F6\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*$",
+  tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: "utf-8",
   searchHotkey: "Ctrl+F"
 };
@@ -112,13 +122,13 @@ var ReaderView = class extends import_obsidian.ItemView {
     return { file: this.filePath };
   }
   async setState(state, result) {
-    const path = state == null ? void 0 : state.file;
+    const viewState = state;
+    const path = viewState == null ? void 0 : viewState.file;
     if (path && path !== this.filePath) {
       this.filePath = path;
       const file = this.app.vault.getAbstractFileByPath(path);
       if (file instanceof import_obsidian.TFile) {
         this.currentFile = file;
-        this.leaf.updateHeader();
         await this.loadContent();
       }
     }
@@ -138,17 +148,18 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.buildReadingArea();
     this.buildTypographyPanel();
     this.bindGlobalKeys();
+    this.applyTypography();
   }
   buildTocSidebar() {
     this.tocSidebar = this.bodyEl.createDiv({ cls: "puffs-toc-sidebar puffs-hidden" });
     const header = this.tocSidebar.createDiv({ cls: "puffs-toc-header" });
     this.tocTitleEl = header.createSpan({ text: "\u76EE\u5F55" });
-    const searchBtn = header.createEl("button", {
+    this.tocModeBtn = header.createEl("button", {
       cls: "puffs-icon-btn puffs-toc-search-btn",
       attr: { "aria-label": "\u5168\u6587\u641C\u7D22" }
     });
-    (0, import_obsidian.setIcon)(searchBtn, "search");
-    searchBtn.addEventListener("click", () => this.toggleSearchMode());
+    (0, import_obsidian.setIcon)(this.tocModeBtn, "search");
+    this.tocModeBtn.addEventListener("click", () => this.toggleSearchMode());
     this.tocListEl = this.tocSidebar.createDiv({ cls: "puffs-toc-list" });
     this.searchPaneEl = this.tocSidebar.createDiv({ cls: "puffs-sidebar-search puffs-hidden" });
     const searchHeader = this.searchPaneEl.createDiv({ cls: "puffs-search-header" });
@@ -181,12 +192,12 @@ var ReaderView = class extends import_obsidian.ItemView {
     });
     (0, import_obsidian.setIcon)(tocBtn, "list");
     tocBtn.addEventListener("click", () => this.toggleToc());
-    const settingsBtn = this.floatingControls.createEl("button", {
+    this.settingsBtn = this.floatingControls.createEl("button", {
       cls: "puffs-icon-btn",
-      attr: { "aria-label": "\u6392\u7248\u8BBE\u7F6E" }
+      attr: { "aria-label": "\u4E66\u7C4D\u8BBE\u7F6E" }
     });
-    (0, import_obsidian.setIcon)(settingsBtn, "settings");
-    settingsBtn.addEventListener("click", () => this.toggleTypography());
+    (0, import_obsidian.setIcon)(this.settingsBtn, "settings");
+    this.settingsBtn.addEventListener("click", () => this.toggleTypography());
     this.searchBackBtn = this.readingArea.createEl("button", {
       cls: "puffs-search-back puffs-hidden",
       text: "\u8FD4\u56DE",
@@ -195,6 +206,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.searchBackBtn.addEventListener("click", () => this.returnFromSearchJump());
     this.contentContainer = this.readingArea.createDiv({ cls: "puffs-page-content" });
     this.readingArea.addEventListener("keydown", (e) => this.handleKeydown(e));
+    this.readingArea.addEventListener("pointerdown", (e) => this.closeTypographyOnOutsideClick(e));
     this.readingArea.addEventListener("wheel", (e) => {
       e.preventDefault();
       if (Math.abs(e.deltaY) < 10) return;
@@ -213,19 +225,20 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.refreshTypographyPanel();
   }
   async loadContent() {
-    var _a, _b;
+    var _a, _b, _c;
     if (!this.currentFile) return;
     this.fileBuffer = await this.app.vault.readBinary(this.currentFile);
     const saved = this.plugin.getProgress(this.currentFile.path);
-    const { text, encoding } = this.decodeBuffer(this.fileBuffer, saved == null ? void 0 : saved.encoding);
+    const bookSettings = this.getBookSettings();
+    const { text, encoding } = this.decodeBuffer(this.fileBuffer, (_a = bookSettings.encoding) != null ? _a : saved == null ? void 0 : saved.encoding);
     this.currentEncoding = encoding;
     this.paragraphs = this.processText(text);
     this.parseChapters();
     this.buildTocList();
     this.applyTypography();
     this.currentPageStart = this.clampPosition({
-      paraIndex: (_a = saved == null ? void 0 : saved.paragraphIndex) != null ? _a : 0,
-      charOffset: (_b = saved == null ? void 0 : saved.charOffset) != null ? _b : 0
+      paraIndex: (_b = saved == null ? void 0 : saved.paragraphIndex) != null ? _b : 0,
+      charOffset: (_c = saved == null ? void 0 : saved.charOffset) != null ? _c : 0
     });
     this.pageBackStack = [];
     this.renderCurrentPage();
@@ -270,6 +283,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     const { text } = this.decodeBuffer(this.fileBuffer, encoding);
     this.currentEncoding = encoding;
     this.paragraphs = this.processText(text);
+    this.updateBookSettings({ encoding });
     this.parseChapters();
     this.buildTocList();
     this.currentPageStart = { paraIndex: 0, charOffset: 0 };
@@ -277,8 +291,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.plugin.saveProgress(this.currentFile.path, {
       paragraphIndex: 0,
       charOffset: 0,
-      lastRead: Date.now(),
-      encoding
+      lastRead: Date.now()
     });
     this.refreshTypographyPanel();
     this.renderCurrentPage();
@@ -334,7 +347,11 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.contentContainer.empty();
     let offset = start.charOffset;
     let lastFit = start;
+    const chapterEndPara = this.getChapterEndPara(start.paraIndex);
     for (let pi = start.paraIndex; pi < this.paragraphs.length; pi++) {
+      if (chapterEndPara !== null && pi >= chapterEndPara) {
+        return this.clampPosition({ paraIndex: chapterEndPara, charOffset: 0 });
+      }
       const text = this.paragraphs[pi];
       const slice = text.slice(offset);
       const para = this.createParagraphEl(slice, pi, offset, false);
@@ -483,19 +500,42 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   parseChapters() {
     this.chapters = [];
-    if (!this.plugin.settings.tocRegex) return;
+    const tocRegexText = this.getEffectiveTocRegex();
+    if (!tocRegexText) return;
     let regex;
     try {
-      regex = new RegExp(this.plugin.settings.tocRegex);
+      regex = new RegExp(tocRegexText);
     } catch (e) {
       return;
     }
     for (let i = 0; i < this.paragraphs.length; i++) {
       const line = this.paragraphs[i].trim();
       if (line && regex.test(line)) {
-        this.chapters.push({ title: line, startParaIndex: i, level: 1 });
+        this.chapters.push({
+          title: this.extractChapterTitle(line),
+          rawTitle: line,
+          startParaIndex: i,
+          level: 1
+        });
       }
     }
+  }
+  extractChapterTitle(line) {
+    var _a, _b;
+    const customRegex = (_a = this.getBookSettings().chapterTitleRegex) != null ? _a : DEFAULT_CHAPTER_TITLE_REGEX;
+    try {
+      const match = line.match(new RegExp(customRegex));
+      const captured = (_b = match == null ? void 0 : match.slice(1).find((part) => part && part.trim().length > 0)) == null ? void 0 : _b.trim();
+      if (captured) return captured;
+    } catch (e) {
+    }
+    return line;
+  }
+  getChapterEndPara(paraIndex) {
+    var _a, _b;
+    const active = this.getActiveChapterIndex(paraIndex);
+    if (active < 0) return null;
+    return (_b = (_a = this.chapters[active + 1]) == null ? void 0 : _a.startParaIndex) != null ? _b : null;
   }
   buildTocList() {
     if (!this.tocListEl) return;
@@ -504,8 +544,9 @@ var ReaderView = class extends import_obsidian.ItemView {
       this.tocListEl.createDiv({ cls: "puffs-toc-empty", text: "\u672A\u68C0\u6D4B\u5230\u7AE0\u8282" });
       return;
     }
-    this.chapters.forEach((ch, idx) => {
+    this.chapters.forEach((ch) => {
       const item = this.tocListEl.createDiv({ cls: "puffs-toc-item", text: ch.title });
+      item.setAttribute("title", ch.rawTitle);
       item.addEventListener("click", () => {
         this.jumpToPosition({ paraIndex: ch.startParaIndex, charOffset: 0 });
         this.setSearchMode(false);
@@ -565,6 +606,9 @@ var ReaderView = class extends import_obsidian.ItemView {
   setSearchMode(enabled) {
     this.isSearchMode = enabled;
     this.tocTitleEl.textContent = enabled ? "\u5168\u6587\u641C\u7D22" : "\u76EE\u5F55";
+    (0, import_obsidian.setIcon)(this.tocModeBtn, enabled ? "list" : "search");
+    this.tocModeBtn.setAttribute("aria-label", enabled ? "\u8FD4\u56DE\u76EE\u5F55" : "\u5168\u6587\u641C\u7D22");
+    this.tocModeBtn.setAttribute("title", enabled ? "\u8FD4\u56DE\u76EE\u5F55" : "\u5168\u6587\u641C\u7D22");
     this.tocListEl.classList.toggle("puffs-hidden", enabled);
     this.searchPaneEl.classList.toggle("puffs-hidden", !enabled);
     if (!enabled) {
@@ -640,92 +684,61 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.jumpToPosition(target);
   }
   refreshTypographyPanel() {
+    var _a;
     const p = this.typographyPanel;
     p.empty();
-    const s = this.plugin.settings;
+    const bookSettings = this.getBookSettings();
     const title = p.createDiv({ cls: "puffs-typo-title" });
-    title.createSpan({ text: "\u6392\u7248\u8BBE\u7F6E" });
+    title.createSpan({ text: "\u4E66\u7C4D\u8BBE\u7F6E" });
     this.encodingBtn = title.createEl("button", {
       cls: "puffs-icon-btn puffs-encoding-btn",
       text: this.currentEncoding.toUpperCase(),
       attr: { "aria-label": "\u5207\u6362\u7F16\u7801" }
     });
     this.encodingBtn.addEventListener("click", (e) => this.showEncodingMenu(e));
-    this.addSliderRow(p, "\u5B57\u4F53\u5927\u5C0F", s.fontSize, 12, 36, 1, "px", (v) => this.updateSetting("fontSize", v));
-    this.addSliderRow(p, "\u5B57\u4F53\u989C\u8272", Number.NaN, 0, 0, 1, "", null, s.fontColor, (v) => this.updateSetting("fontColor", v));
-    this.addSliderRow(p, "\u80CC\u666F\u989C\u8272", Number.NaN, 0, 0, 1, "", null, s.backgroundColor, (v) => this.updateSetting("backgroundColor", v));
-    this.addSliderRow(p, "\u5B57\u95F4\u8DDD", s.letterSpacing, 0, 8, 0.5, "px", (v) => this.updateSetting("letterSpacing", v));
-    this.addSliderRow(p, "\u884C\u95F4\u8DDD", s.lineHeight, 1, 3.2, 0.1, "x", (v) => this.updateSetting("lineHeight", v));
-    this.addSliderRow(p, "\u6BB5\u95F4\u8DDD", s.paragraphSpacing, 0, 48, 2, "px", (v) => this.updateSetting("paragraphSpacing", v));
-    this.addSliderRow(p, "\u9996\u884C\u7F29\u8FDB", s.firstLineIndent, 0, 4, 0.5, "em", (v) => this.updateSetting("firstLineIndent", v));
-    this.addSliderRow(p, "\u9876\u90E8\u95F4\u8DDD", s.paddingTop, 0, 180, 4, "px", (v) => this.updateSetting("paddingTop", v));
-    this.addSliderRow(p, "\u5E95\u90E8\u95F4\u8DDD", s.paddingBottom, 0, 180, 4, "px", (v) => this.updateSetting("paddingBottom", v));
-    this.addSliderRow(p, "\u9605\u8BFB\u5BBD\u5EA6", s.contentWidth, 360, 1500, 20, "px", (v) => this.updateSetting("contentWidth", v));
-    this.addToggleRow(p, "\u663E\u793A\u8FDB\u5EA6", s.showProgress, (v) => this.updateSetting("showProgress", v));
-    this.addToggleRow(p, "\u53BB\u9664\u7A7A\u884C", s.removeExtraBlankLines, (v) => {
-      this.plugin.settings.removeExtraBlankLines = v;
-      this.plugin.savePluginData();
-      this.loadContent();
+    this.addNumberRow(
+      p,
+      "\u9996\u884C\u7F29\u8FDB",
+      this.getEffectiveFirstLineIndent(),
+      0,
+      4,
+      0.1,
+      "em",
+      (v) => {
+        this.updateBookSettings({ firstLineIndent: v });
+        this.applyTypography();
+        this.renderCurrentPage();
+      }
+    );
+    this.addTextRow(p, "\u76EE\u5F55\u6B63\u5219", this.getEffectiveTocRegex(), (v) => {
+      this.updateBookSettings({ tocRegex: v || void 0 });
+      this.parseChapters();
+      this.buildTocList();
+      this.renderCurrentPage();
     });
-    this.addTextRow(p, "\u76EE\u5F55\u6B63\u5219", s.tocRegex, (v) => {
-      this.plugin.settings.tocRegex = v;
-      this.plugin.savePluginData();
+    this.addTextRow(p, "\u7AE0\u540D\u6B63\u5219", (_a = bookSettings.chapterTitleRegex) != null ? _a : DEFAULT_CHAPTER_TITLE_REGEX, (v) => {
+      this.updateBookSettings({ chapterTitleRegex: v || void 0 });
       this.parseChapters();
       this.buildTocList();
       this.updatePageMeta();
     });
-    this.addTextRow(p, "\u641C\u7D22\u5FEB\u6377\u952E", s.searchHotkey, (v) => {
-      this.plugin.settings.searchHotkey = v || "Ctrl+F";
-      this.plugin.savePluginData();
-    });
   }
-  updateSetting(key, value) {
-    this.plugin.settings[key] = value;
-    this.plugin.savePluginData();
-    this.applyTypography();
-    this.renderCurrentPage();
-  }
-  addSliderRow(parent, label, value, min, max, step, unit, onNumberChange, textValue, onTextChange) {
+  addNumberRow(parent, label, value, min, max, step, unit, onChange) {
     const row = parent.createDiv({ cls: "puffs-typo-row" });
     row.createSpan({ cls: "puffs-typo-label", text: label });
-    if (onTextChange) {
-      const input2 = row.createEl("input", {
-        cls: "puffs-typo-text-input",
-        attr: { type: "text", placeholder: "R,G,B \u6216\u7559\u7A7A" }
-      });
-      input2.value = textValue != null ? textValue : "";
-      input2.addEventListener("input", () => onTextChange(input2.value.trim()));
-      return;
-    }
-    const slider = row.createEl("input", {
-      cls: "puffs-typo-slider",
-      attr: { type: "range", min: String(min), max: String(max), step: String(step) }
-    });
-    slider.value = String(value);
     const input = row.createEl("input", {
       cls: "puffs-typo-number",
       attr: { type: "number", min: String(min), max: String(max), step: String(step) }
     });
     input.value = String(value);
     row.createSpan({ cls: "puffs-typo-unit", text: unit });
-    const update = (raw) => {
-      const parsed = Number(raw);
-      if (Number.isNaN(parsed) || !onNumberChange) return;
+    input.addEventListener("change", () => {
+      const parsed = Number(input.value);
+      if (Number.isNaN(parsed)) return;
       const next = Math.min(max, Math.max(min, parsed));
-      slider.value = String(next);
       input.value = String(next);
-      onNumberChange(next);
-    };
-    slider.addEventListener("input", () => update(slider.value));
-    input.addEventListener("change", () => update(input.value));
-  }
-  addToggleRow(parent, label, value, onChange) {
-    const row = parent.createDiv({ cls: "puffs-typo-row" });
-    const text = row.createEl("label", { cls: "puffs-typo-toggle-label" });
-    const cb = text.createEl("input", { attr: { type: "checkbox" } });
-    cb.checked = value;
-    text.appendText(` ${label}`);
-    cb.addEventListener("change", () => onChange(cb.checked));
+      onChange(next);
+    });
   }
   addTextRow(parent, label, value, onChange) {
     const row = parent.createDiv({ cls: "puffs-typo-row" });
@@ -735,26 +748,73 @@ var ReaderView = class extends import_obsidian.ItemView {
     input.addEventListener("change", () => onChange(input.value.trim()));
   }
   applyTypography() {
+    if (!this.rootEl || !this.contentContainer) return;
     const s = this.plugin.settings;
     const rgbBg = s.backgroundColor ? `rgb(${s.backgroundColor})` : "";
     const rgbFont = s.fontColor ? `rgb(${s.fontColor})` : "";
+    const chapterColor = s.chapterMetaColor ? `rgb(${s.chapterMetaColor})` : "";
+    const progressColor = s.progressMetaColor ? `rgb(${s.progressMetaColor})` : "";
     this.rootEl.style.setProperty("--puffs-bg-color", rgbBg || "var(--background-primary)");
     this.readingArea.style.setProperty("--puffs-bg-color", rgbBg || "var(--background-primary)");
     this.contentContainer.style.setProperty("--puffs-font-size", `${s.fontSize}px`);
     this.contentContainer.style.setProperty("--puffs-line-height", String(s.lineHeight));
     this.contentContainer.style.setProperty("--puffs-para-spacing", `${s.paragraphSpacing}px`);
-    this.contentContainer.style.setProperty("--puffs-indent", `${s.firstLineIndent}em`);
+    this.contentContainer.style.setProperty("--puffs-indent", `${this.getEffectiveFirstLineIndent()}em`);
     this.contentContainer.style.setProperty("--puffs-content-width", `${s.contentWidth}px`);
     this.contentContainer.style.setProperty("--puffs-letter-spacing", `${s.letterSpacing}px`);
     this.contentContainer.style.setProperty("--puffs-padding-top", `${s.paddingTop}px`);
     this.contentContainer.style.setProperty("--puffs-padding-bottom", `${s.paddingBottom}px`);
+    this.rootEl.style.setProperty("--puffs-sidebar-width", `${s.sidebarWidth}px`);
+    this.rootEl.style.setProperty("--puffs-toc-font-size", `${s.tocFontSize}px`);
+    this.rootEl.style.setProperty("--puffs-chapter-meta-size", `${s.chapterMetaFontSize}px`);
+    this.rootEl.style.setProperty("--puffs-chapter-meta-top", `${s.chapterMetaTop}px`);
+    this.rootEl.style.setProperty("--puffs-progress-meta-size", `${s.progressMetaFontSize}px`);
+    this.rootEl.style.setProperty("--puffs-progress-meta-bottom", `${s.progressMetaBottom}px`);
     if (rgbFont) this.contentContainer.style.setProperty("--puffs-font-color", rgbFont);
     else this.contentContainer.style.removeProperty("--puffs-font-color");
+    if (chapterColor) this.rootEl.style.setProperty("--puffs-chapter-meta-color", chapterColor);
+    else this.rootEl.style.removeProperty("--puffs-chapter-meta-color");
+    if (progressColor) this.rootEl.style.setProperty("--puffs-progress-meta-color", progressColor);
+    else this.rootEl.style.removeProperty("--puffs-progress-meta-color");
   }
   toggleTypography() {
-    this.isTypographyOpen = !this.isTypographyOpen;
-    this.typographyPanel.classList.toggle("puffs-hidden", !this.isTypographyOpen);
-    if (this.isTypographyOpen) this.refreshTypographyPanel();
+    if (this.isTypographyOpen) this.closeTypography();
+    else {
+      this.isTypographyOpen = true;
+      this.refreshTypographyPanel();
+      this.typographyPanel.classList.remove("puffs-hidden");
+    }
+  }
+  closeTypography() {
+    this.isTypographyOpen = false;
+    this.typographyPanel.classList.add("puffs-hidden");
+  }
+  closeTypographyOnOutsideClick(e) {
+    if (!this.isTypographyOpen) return;
+    const target = e.target;
+    if (!target) return;
+    if (this.typographyPanel.contains(target) || this.settingsBtn.contains(target)) return;
+    this.closeTypography();
+  }
+  getBookSettings() {
+    if (!this.currentFile) return {};
+    return this.plugin.getBookSettings(this.currentFile.path);
+  }
+  getEffectiveFirstLineIndent() {
+    var _a;
+    return (_a = this.getBookSettings().firstLineIndent) != null ? _a : this.plugin.settings.firstLineIndent;
+  }
+  getEffectiveTocRegex() {
+    var _a;
+    return (_a = this.getBookSettings().tocRegex) != null ? _a : this.plugin.settings.tocRegex;
+  }
+  updateBookSettings(partial) {
+    if (!this.currentFile) return;
+    const next = {
+      ...this.getBookSettings(),
+      ...partial
+    };
+    this.plugin.saveBookSettings(this.currentFile.path, next);
   }
   bindGlobalKeys() {
     this.boundGlobalKeydown = (e) => {
@@ -789,7 +849,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       e.preventDefault();
       this.pageUp();
     } else if (e.key === "Escape") {
-      if (this.isTypographyOpen) this.toggleTypography();
+      if (this.isTypographyOpen) this.closeTypography();
       else if (this.isSearchMode) this.setSearchMode(false);
       else if (this.isTocOpen) this.toggleToc();
     }
@@ -803,8 +863,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.plugin.saveProgress(this.currentFile.path, {
       paragraphIndex: this.currentPageStart.paraIndex,
       charOffset: this.currentPageStart.charOffset,
-      lastRead: Date.now(),
-      encoding: this.currentEncoding !== "utf-8" ? this.currentEncoding : void 0
+      lastRead: Date.now()
     });
   }
   buildHighlightedHTML(text, matches) {
@@ -836,92 +895,27 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h3", { text: "\u6392\u7248\u8BBE\u7F6E" });
-    new import_obsidian2.Setting(containerEl).setName("\u5B57\u4F53\u5927\u5C0F").setDesc("\u9605\u8BFB\u533A\u6587\u5B57\u5927\u5C0F (px)").addSlider(
-      (slider) => slider.setLimits(12, 32, 1).setValue(this.plugin.settings.fontSize).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.fontSize = v;
-        await this.plugin.savePluginData();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u884C\u95F4\u8DDD").setDesc("\u884C\u95F4\u8DDD\u500D\u6570").addSlider(
-      (slider) => slider.setLimits(1, 3, 0.1).setValue(this.plugin.settings.lineHeight).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.lineHeight = v;
-        await this.plugin.savePluginData();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u6BB5\u843D\u95F4\u8DDD").setDesc("\u6BB5\u843D\u4E4B\u95F4\u7684\u8DDD\u79BB (px)").addSlider(
-      (slider) => slider.setLimits(0, 40, 2).setValue(this.plugin.settings.paragraphSpacing).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.paragraphSpacing = v;
-        await this.plugin.savePluginData();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u9996\u884C\u7F29\u8FDB").setDesc("\u6BB5\u843D\u9996\u884C\u7F29\u8FDB (em)").addSlider(
-      (slider) => slider.setLimits(0, 4, 0.5).setValue(this.plugin.settings.firstLineIndent).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.firstLineIndent = v;
-        await this.plugin.savePluginData();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u9605\u8BFB\u533A\u5BBD\u5EA6").setDesc("\u9605\u8BFB\u533A\u6700\u5927\u5BBD\u5EA6 (px)").addSlider(
-      (slider) => slider.setLimits(400, 1400, 50).setValue(this.plugin.settings.contentWidth).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.contentWidth = v;
-        await this.plugin.savePluginData();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u5B57\u95F4\u8DDD").setDesc("\u6587\u5B57\u4E4B\u95F4\u7684\u8DDD\u79BB (px)").addSlider(
-      (slider) => slider.setLimits(0, 6, 0.5).setValue(this.plugin.settings.letterSpacing).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.letterSpacing = v;
-        await this.plugin.savePluginData();
-      })
-    ).addText(
-      (text) => text.setValue(String(this.plugin.settings.letterSpacing)).onChange(async (v) => {
-        const n = Number(v);
-        if (!Number.isNaN(n)) {
-          this.plugin.settings.letterSpacing = n;
-          await this.plugin.savePluginData();
-        }
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u9876\u90E8\u95F4\u8DDD").setDesc("\u6700\u4E0A\u65B9\u6587\u5B57\u4E0E\u9875\u9762\u9876\u90E8\u7684\u8DDD\u79BB (px)").addSlider(
-      (slider) => slider.setLimits(0, 160, 4).setValue(this.plugin.settings.paddingTop).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.paddingTop = v;
-        await this.plugin.savePluginData();
-      })
-    ).addText(
-      (text) => text.setValue(String(this.plugin.settings.paddingTop)).onChange(async (v) => {
-        const n = Number(v);
-        if (!Number.isNaN(n)) {
-          this.plugin.settings.paddingTop = n;
-          await this.plugin.savePluginData();
-        }
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u5E95\u90E8\u95F4\u8DDD").setDesc("\u6700\u4E0B\u65B9\u6587\u5B57\u4E0E\u9875\u9762\u5E95\u90E8\u7684\u8DDD\u79BB (px)").addSlider(
-      (slider) => slider.setLimits(0, 200, 4).setValue(this.plugin.settings.paddingBottom).setDynamicTooltip().onChange(async (v) => {
-        this.plugin.settings.paddingBottom = v;
-        await this.plugin.savePluginData();
-      })
-    ).addText(
-      (text) => text.setValue(String(this.plugin.settings.paddingBottom)).onChange(async (v) => {
-        const n = Number(v);
-        if (!Number.isNaN(n)) {
-          this.plugin.settings.paddingBottom = n;
-          await this.plugin.savePluginData();
-        }
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u5B57\u4F53\u989C\u8272").setDesc("RGB \u683C\u5F0F\uFF0C\u5982 51,51,51\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002").addText(
-      (text) => text.setPlaceholder("\u4F8B\u5982 51,51,51").setValue(this.plugin.settings.fontColor).onChange(async (v) => {
-        this.plugin.settings.fontColor = v.trim();
-        await this.plugin.savePluginData();
-      })
-    );
-    new import_obsidian2.Setting(containerEl).setName("\u80CC\u666F\u989C\u8272").setDesc("RGB \u683C\u5F0F\uFF0C\u5982 233,216,188\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002").addText(
-      (text) => text.setPlaceholder("\u4F8B\u5982 233,216,188").setValue(this.plugin.settings.backgroundColor).onChange(async (v) => {
-        this.plugin.settings.backgroundColor = v.trim();
-        await this.plugin.savePluginData();
-      })
-    );
+    this.addNumberSetting("\u6B63\u6587\u5B57\u4F53\u5927\u5C0F", "\u9605\u8BFB\u533A\u6587\u5B57\u5927\u5C0F (px)", "fontSize", 12, 36, 1, "px");
+    this.addNumberSetting("\u884C\u95F4\u8DDD", "\u6B63\u6587\u884C\u95F4\u8DDD\u500D\u6570", "lineHeight", 1, 3.2, 0.1, "\u500D");
+    this.addNumberSetting("\u6BB5\u843D\u95F4\u8DDD", "\u6BB5\u843D\u4E4B\u95F4\u7684\u8DDD\u79BB (px)", "paragraphSpacing", 0, 48, 1, "px");
+    this.addNumberSetting("\u9996\u884C\u7F29\u8FDB", "\u6240\u6709\u4E66\u7C4D\u9ED8\u8BA4\u9996\u884C\u7F29\u8FDB (em)\uFF0C\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199", "firstLineIndent", 0, 4, 0.1, "em");
+    this.addNumberSetting("\u9605\u8BFB\u533A\u5BBD\u5EA6", "\u9605\u8BFB\u533A\u6700\u5927\u5BBD\u5EA6 (px)", "contentWidth", 360, 1500, 10, "px");
+    this.addNumberSetting("\u5B57\u95F4\u8DDD", "\u6587\u5B57\u4E4B\u95F4\u7684\u8DDD\u79BB (px)", "letterSpacing", 0, 8, 0.1, "px");
+    this.addNumberSetting("\u6B63\u6587\u9876\u90E8\u95F4\u8DDD", "\u6B63\u6587\u5185\u5BB9\u4E0E\u9875\u9762\u9876\u90E8\u7684\u8DDD\u79BB (px)", "paddingTop", 0, 180, 1, "px");
+    this.addNumberSetting("\u6B63\u6587\u5E95\u90E8\u95F4\u8DDD", "\u6B63\u6587\u5185\u5BB9\u4E0E\u9875\u9762\u5E95\u90E8\u7684\u8DDD\u79BB (px)", "paddingBottom", 0, 200, 1, "px");
+    this.addNumberSetting("\u5DE6\u4FA7\u680F\u5BBD\u5EA6", "\u76EE\u5F55\u548C\u5168\u6587\u641C\u7D22\u4FA7\u680F\u5BBD\u5EA6 (px)", "sidebarWidth", 220, 520, 1, "px");
+    this.addNumberSetting("\u76EE\u5F55\u5B57\u4F53\u5927\u5C0F", "\u5DE6\u4FA7\u76EE\u5F55\u6761\u76EE\u7684\u5B57\u4F53\u5927\u5C0F (px)", "tocFontSize", 11, 20, 1, "px");
+    this.addTextSetting("\u5B57\u4F53\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 51,51,51\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "fontColor", "\u4F8B\u5982 51,51,51");
+    this.addTextSetting("\u4E66\u7C4D\u80CC\u666F\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 233,216,188\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "backgroundColor", "\u4F8B\u5982 233,216,188");
+    containerEl.createEl("h3", { text: "\u9876\u90E8\u7AE0\u540D\u4E0E\u5E95\u90E8\u8FDB\u5EA6" });
+    this.addNumberSetting("\u7AE0\u540D\u5B57\u53F7", "\u9875\u9762\u9876\u90E8\u7AE0\u540D\u5C0F\u5B57\u5927\u5C0F (px)", "chapterMetaFontSize", 9, 20, 1, "px");
+    this.addNumberSetting("\u7AE0\u540D\u9876\u90E8\u4F4D\u7F6E", "\u7AE0\u540D\u8DDD\u79BB\u9875\u9762\u9876\u90E8\u7684\u4F4D\u7F6E (px)", "chapterMetaTop", 0, 80, 1, "px");
+    this.addTextSetting("\u7AE0\u540D\u989C\u8272", "RGB \u683C\u5F0F\uFF1B\u7559\u7A7A\u4F7F\u7528\u4E3B\u9898\u5F31\u5316\u6587\u5B57\u989C\u8272\u3002", "chapterMetaColor", "\u4F8B\u5982 120,120,120");
+    this.addNumberSetting("\u8FDB\u5EA6\u5B57\u53F7", "\u9875\u9762\u5E95\u90E8\u767E\u5206\u6BD4\u5C0F\u5B57\u5927\u5C0F (px)", "progressMetaFontSize", 9, 20, 1, "px");
+    this.addNumberSetting("\u8FDB\u5EA6\u5E95\u90E8\u4F4D\u7F6E", "\u767E\u5206\u6BD4\u8DDD\u79BB\u9875\u9762\u5E95\u90E8\u7684\u4F4D\u7F6E (px)", "progressMetaBottom", 0, 80, 1, "px");
+    this.addTextSetting("\u8FDB\u5EA6\u989C\u8272", "RGB \u683C\u5F0F\uFF1B\u7559\u7A7A\u4F7F\u7528\u4E3B\u9898\u5F31\u5316\u6587\u5B57\u989C\u8272\u3002", "progressMetaColor", "\u4F8B\u5982 120,120,120");
     containerEl.createEl("h3", { text: "\u529F\u80FD\u5F00\u5173" });
-    new import_obsidian2.Setting(containerEl).setName("\u663E\u793A\u9605\u8BFB\u8FDB\u5EA6").setDesc("\u5728\u5E95\u90E8\u72B6\u6001\u680F\u663E\u793A\u9605\u8BFB\u767E\u5206\u6BD4").addToggle(
+    new import_obsidian2.Setting(containerEl).setName("\u663E\u793A\u9605\u8BFB\u8FDB\u5EA6").setDesc("\u5728\u9875\u9762\u5E95\u90E8\u663E\u793A\u9605\u8BFB\u767E\u5206\u6BD4").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showProgress).onChange(async (v) => {
         this.plugin.settings.showProgress = v;
         await this.plugin.savePluginData();
@@ -934,12 +928,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       })
     );
     containerEl.createEl("h3", { text: "\u76EE\u5F55\u4E0E\u7F16\u7801" });
-    new import_obsidian2.Setting(containerEl).setName("\u76EE\u5F55\u5339\u914D\u6B63\u5219").setDesc("\u7528\u4E8E\u81EA\u52A8\u63D0\u53D6\u7AE0\u8282\u6807\u9898\u7684\u6B63\u5219\u8868\u8FBE\u5F0F").addText(
-      (text) => text.setPlaceholder(DEFAULT_SETTINGS.tocRegex).setValue(this.plugin.settings.tocRegex).onChange(async (v) => {
-        this.plugin.settings.tocRegex = v.trim();
-        await this.plugin.savePluginData();
-      })
-    );
+    this.addTextSetting("\u76EE\u5F55\u5339\u914D\u6B63\u5219", "\u6240\u6709\u4E66\u7C4D\u9ED8\u8BA4\u7AE0\u8282\u5339\u914D\u6B63\u5219\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "tocRegex", DEFAULT_SETTINGS.tocRegex);
     new import_obsidian2.Setting(containerEl).setName("\u9ED8\u8BA4\u7F16\u7801").setDesc("\u6253\u5F00\u6587\u4EF6\u65F6\u7684\u9ED8\u8BA4\u7F16\u7801\uFF08\u81EA\u52A8\u68C0\u6D4B\u5931\u8D25\u65F6\u4F7F\u7528\uFF09").addDropdown(
       (dd) => dd.addOptions({
         "utf-8": "UTF-8",
@@ -951,9 +940,33 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.savePluginData();
       })
     );
-    new import_obsidian2.Setting(containerEl).setName("\u5168\u6587\u641C\u7D22\u5FEB\u6377\u952E").setDesc("\u9ED8\u8BA4 Ctrl+F\u3002\u652F\u6301 Ctrl/Alt/Shift \u52A0\u5355\u4E2A\u6309\u952E\uFF0C\u4F8B\u5982 Ctrl+Shift+F\u3002").addText(
-      (text) => text.setPlaceholder(DEFAULT_SETTINGS.searchHotkey).setValue(this.plugin.settings.searchHotkey).onChange(async (v) => {
-        this.plugin.settings.searchHotkey = v.trim() || DEFAULT_SETTINGS.searchHotkey;
+    this.addTextSetting(
+      "\u5168\u6587\u641C\u7D22\u5FEB\u6377\u952E",
+      "\u9ED8\u8BA4 Ctrl+F\u3002\u652F\u6301 Ctrl/Alt/Shift \u52A0\u5355\u4E2A\u6309\u952E\uFF0C\u4F8B\u5982 Ctrl+Shift+F\u3002",
+      "searchHotkey",
+      DEFAULT_SETTINGS.searchHotkey
+    );
+  }
+  addNumberSetting(name, desc, key, min, max, step, unit) {
+    new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addSlider(
+      (slider) => slider.setLimits(min, max, step).setValue(this.plugin.settings[key]).setDynamicTooltip().onChange(async (v) => {
+        this.plugin.settings[key] = v;
+        await this.plugin.savePluginData();
+      })
+    ).addText(
+      (text) => text.setValue(String(this.plugin.settings[key])).setPlaceholder(unit).onChange(async (v) => {
+        const n = Number(v);
+        if (Number.isNaN(n)) return;
+        this.plugin.settings[key] = Math.min(max, Math.max(min, n));
+        await this.plugin.savePluginData();
+      })
+    );
+  }
+  addTextSetting(name, desc, key, placeholder) {
+    new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addText(
+      (text) => text.setPlaceholder(placeholder).setValue(this.plugin.settings[key]).onChange(async (v) => {
+        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : "";
+        this.plugin.settings[key] = v.trim() || fallback;
         await this.plugin.savePluginData();
       })
     );
@@ -985,6 +998,7 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
     this.progress = {};
+    this.bookSettings = {};
   }
   async onload() {
     await this.loadPluginData();
@@ -1036,15 +1050,25 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
   }
   // ═══════════════════════════ 数据持久化 ═══════════════════════════
   async loadPluginData() {
-    var _a;
+    var _a, _b, _c;
     const data = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data == null ? void 0 : data.settings);
     this.progress = (_a = data == null ? void 0 : data.progress) != null ? _a : {};
+    this.bookSettings = (_b = data == null ? void 0 : data.bookSettings) != null ? _b : {};
+    for (const [filePath, progress] of Object.entries(this.progress)) {
+      if (progress.encoding && !((_c = this.bookSettings[filePath]) == null ? void 0 : _c.encoding)) {
+        this.bookSettings[filePath] = {
+          ...this.bookSettings[filePath],
+          encoding: progress.encoding
+        };
+      }
+    }
   }
   async savePluginData() {
     await this.saveData({
       settings: this.settings,
-      progress: this.progress
+      progress: this.progress,
+      bookSettings: this.bookSettings
     });
   }
   // ═══════════════════════════ 阅读进度 ═══════════════════════════
@@ -1053,6 +1077,21 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
   }
   async saveProgress(filePath, progress) {
     this.progress[filePath] = progress;
+    await this.savePluginData();
+  }
+  getBookSettings(filePath) {
+    var _a;
+    return (_a = this.bookSettings[filePath]) != null ? _a : {};
+  }
+  async saveBookSettings(filePath, settings) {
+    const compact = {};
+    if (settings.encoding) compact.encoding = settings.encoding;
+    if (settings.firstLineIndent !== void 0) compact.firstLineIndent = settings.firstLineIndent;
+    if (settings.tocRegex !== void 0 && settings.tocRegex !== "") compact.tocRegex = settings.tocRegex;
+    if (settings.chapterTitleRegex !== void 0 && settings.chapterTitleRegex !== "") {
+      compact.chapterTitleRegex = settings.chapterTitleRegex;
+    }
+    this.bookSettings[filePath] = compact;
     await this.savePluginData();
   }
 };

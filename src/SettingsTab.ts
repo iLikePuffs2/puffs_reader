@@ -2,6 +2,10 @@ import { App, PluginSettingTab, Setting } from 'obsidian';
 import PuffsReaderPlugin from './main';
 import { DEFAULT_SETTINGS } from './types';
 
+type NumericSettingKey = {
+  [K in keyof PuffsReaderPlugin['settings']]: PuffsReaderPlugin['settings'][K] extends number ? K : never;
+}[keyof PuffsReaderPlugin['settings']];
+
 export class SettingsTab extends PluginSettingTab {
   plugin: PuffsReaderPlugin;
 
@@ -14,186 +18,33 @@ export class SettingsTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    // ── 排版设置 ──
     containerEl.createEl('h3', { text: '排版设置' });
+    this.addNumberSetting('正文字体大小', '阅读区文字大小 (px)', 'fontSize', 12, 36, 1, 'px');
+    this.addNumberSetting('行间距', '正文行间距倍数', 'lineHeight', 1, 3.2, 0.1, '倍');
+    this.addNumberSetting('段落间距', '段落之间的距离 (px)', 'paragraphSpacing', 0, 48, 1, 'px');
+    this.addNumberSetting('首行缩进', '所有书籍默认首行缩进 (em)，单书设置可覆写', 'firstLineIndent', 0, 4, 0.1, 'em');
+    this.addNumberSetting('阅读区宽度', '阅读区最大宽度 (px)', 'contentWidth', 360, 1500, 10, 'px');
+    this.addNumberSetting('字间距', '文字之间的距离 (px)', 'letterSpacing', 0, 8, 0.1, 'px');
+    this.addNumberSetting('正文顶部间距', '正文内容与页面顶部的距离 (px)', 'paddingTop', 0, 180, 1, 'px');
+    this.addNumberSetting('正文底部间距', '正文内容与页面底部的距离 (px)', 'paddingBottom', 0, 200, 1, 'px');
+    this.addNumberSetting('左侧栏宽度', '目录和全文搜索侧栏宽度 (px)', 'sidebarWidth', 220, 520, 1, 'px');
+    this.addNumberSetting('目录字体大小', '左侧目录条目的字体大小 (px)', 'tocFontSize', 11, 20, 1, 'px');
 
-    new Setting(containerEl)
-      .setName('字体大小')
-      .setDesc('阅读区文字大小 (px)')
-      .addSlider((slider) =>
-        slider
-          .setLimits(12, 32, 1)
-          .setValue(this.plugin.settings.fontSize)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.fontSize = v;
-            await this.plugin.savePluginData();
-          }),
-      );
+    this.addTextSetting('字体颜色', 'RGB 格式，如 51,51,51。留空跟随主题。', 'fontColor', '例如 51,51,51');
+    this.addTextSetting('书籍背景颜色', 'RGB 格式，如 233,216,188。留空跟随主题。', 'backgroundColor', '例如 233,216,188');
 
-    new Setting(containerEl)
-      .setName('行间距')
-      .setDesc('行间距倍数')
-      .addSlider((slider) =>
-        slider
-          .setLimits(1, 3, 0.1)
-          .setValue(this.plugin.settings.lineHeight)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.lineHeight = v;
-            await this.plugin.savePluginData();
-          }),
-      );
+    containerEl.createEl('h3', { text: '顶部章名与底部进度' });
+    this.addNumberSetting('章名字号', '页面顶部章名小字大小 (px)', 'chapterMetaFontSize', 9, 20, 1, 'px');
+    this.addNumberSetting('章名顶部位置', '章名距离页面顶部的位置 (px)', 'chapterMetaTop', 0, 80, 1, 'px');
+    this.addTextSetting('章名颜色', 'RGB 格式；留空使用主题弱化文字颜色。', 'chapterMetaColor', '例如 120,120,120');
+    this.addNumberSetting('进度字号', '页面底部百分比小字大小 (px)', 'progressMetaFontSize', 9, 20, 1, 'px');
+    this.addNumberSetting('进度底部位置', '百分比距离页面底部的位置 (px)', 'progressMetaBottom', 0, 80, 1, 'px');
+    this.addTextSetting('进度颜色', 'RGB 格式；留空使用主题弱化文字颜色。', 'progressMetaColor', '例如 120,120,120');
 
-    new Setting(containerEl)
-      .setName('段落间距')
-      .setDesc('段落之间的距离 (px)')
-      .addSlider((slider) =>
-        slider
-          .setLimits(0, 40, 2)
-          .setValue(this.plugin.settings.paragraphSpacing)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.paragraphSpacing = v;
-            await this.plugin.savePluginData();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('首行缩进')
-      .setDesc('段落首行缩进 (em)')
-      .addSlider((slider) =>
-        slider
-          .setLimits(0, 4, 0.5)
-          .setValue(this.plugin.settings.firstLineIndent)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.firstLineIndent = v;
-            await this.plugin.savePluginData();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('阅读区宽度')
-      .setDesc('阅读区最大宽度 (px)')
-      .addSlider((slider) =>
-        slider
-          .setLimits(400, 1400, 50)
-          .setValue(this.plugin.settings.contentWidth)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.contentWidth = v;
-            await this.plugin.savePluginData();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('字间距')
-      .setDesc('文字之间的距离 (px)')
-      .addSlider((slider) =>
-        slider
-          .setLimits(0, 6, 0.5)
-          .setValue(this.plugin.settings.letterSpacing)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.letterSpacing = v;
-            await this.plugin.savePluginData();
-          }),
-      )
-      .addText((text) =>
-        text
-          .setValue(String(this.plugin.settings.letterSpacing))
-          .onChange(async (v) => {
-            const n = Number(v);
-            if (!Number.isNaN(n)) {
-              this.plugin.settings.letterSpacing = n;
-              await this.plugin.savePluginData();
-            }
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('顶部间距')
-      .setDesc('最上方文字与页面顶部的距离 (px)')
-      .addSlider((slider) =>
-        slider
-          .setLimits(0, 160, 4)
-          .setValue(this.plugin.settings.paddingTop)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.paddingTop = v;
-            await this.plugin.savePluginData();
-          }),
-      )
-      .addText((text) =>
-        text
-          .setValue(String(this.plugin.settings.paddingTop))
-          .onChange(async (v) => {
-            const n = Number(v);
-            if (!Number.isNaN(n)) {
-              this.plugin.settings.paddingTop = n;
-              await this.plugin.savePluginData();
-            }
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('底部间距')
-      .setDesc('最下方文字与页面底部的距离 (px)')
-      .addSlider((slider) =>
-        slider
-          .setLimits(0, 200, 4)
-          .setValue(this.plugin.settings.paddingBottom)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            this.plugin.settings.paddingBottom = v;
-            await this.plugin.savePluginData();
-          }),
-      )
-      .addText((text) =>
-        text
-          .setValue(String(this.plugin.settings.paddingBottom))
-          .onChange(async (v) => {
-            const n = Number(v);
-            if (!Number.isNaN(n)) {
-              this.plugin.settings.paddingBottom = n;
-              await this.plugin.savePluginData();
-            }
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('字体颜色')
-      .setDesc('RGB 格式，如 51,51,51。留空跟随主题。')
-      .addText((text) =>
-        text
-          .setPlaceholder('例如 51,51,51')
-          .setValue(this.plugin.settings.fontColor)
-          .onChange(async (v) => {
-            this.plugin.settings.fontColor = v.trim();
-            await this.plugin.savePluginData();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('背景颜色')
-      .setDesc('RGB 格式，如 233,216,188。留空跟随主题。')
-      .addText((text) =>
-        text
-          .setPlaceholder('例如 233,216,188')
-          .setValue(this.plugin.settings.backgroundColor)
-          .onChange(async (v) => {
-            this.plugin.settings.backgroundColor = v.trim();
-            await this.plugin.savePluginData();
-          }),
-      );
-
-    // ── 功能开关 ──
     containerEl.createEl('h3', { text: '功能开关' });
-
     new Setting(containerEl)
       .setName('显示阅读进度')
-      .setDesc('在底部状态栏显示阅读百分比')
+      .setDesc('在页面底部显示阅读百分比')
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.showProgress).onChange(async (v) => {
           this.plugin.settings.showProgress = v;
@@ -211,21 +62,8 @@ export class SettingsTab extends PluginSettingTab {
         }),
       );
 
-    // ── 目录与编码 ──
     containerEl.createEl('h3', { text: '目录与编码' });
-
-    new Setting(containerEl)
-      .setName('目录匹配正则')
-      .setDesc('用于自动提取章节标题的正则表达式')
-      .addText((text) =>
-        text
-          .setPlaceholder(DEFAULT_SETTINGS.tocRegex)
-          .setValue(this.plugin.settings.tocRegex)
-          .onChange(async (v) => {
-            this.plugin.settings.tocRegex = v.trim();
-            await this.plugin.savePluginData();
-          }),
-      );
+    this.addTextSetting('目录匹配正则', '所有书籍默认章节匹配正则；单书设置可覆写。', 'tocRegex', DEFAULT_SETTINGS.tocRegex);
 
     new Setting(containerEl)
       .setName('默认编码')
@@ -245,15 +83,65 @@ export class SettingsTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName('全文搜索快捷键')
-      .setDesc('默认 Ctrl+F。支持 Ctrl/Alt/Shift 加单个按键，例如 Ctrl+Shift+F。')
+    this.addTextSetting(
+      '全文搜索快捷键',
+      '默认 Ctrl+F。支持 Ctrl/Alt/Shift 加单个按键，例如 Ctrl+Shift+F。',
+      'searchHotkey',
+      DEFAULT_SETTINGS.searchHotkey,
+    );
+  }
+
+  private addNumberSetting(
+    name: string,
+    desc: string,
+    key: NumericSettingKey,
+    min: number,
+    max: number,
+    step: number,
+    unit: string,
+  ): void {
+    new Setting(this.containerEl)
+      .setName(name)
+      .setDesc(desc)
+      .addSlider((slider) =>
+        slider
+          .setLimits(min, max, step)
+          .setValue(this.plugin.settings[key])
+          .setDynamicTooltip()
+          .onChange(async (v) => {
+            this.plugin.settings[key] = v;
+            await this.plugin.savePluginData();
+          }),
+      )
       .addText((text) =>
         text
-          .setPlaceholder(DEFAULT_SETTINGS.searchHotkey)
-          .setValue(this.plugin.settings.searchHotkey)
+          .setValue(String(this.plugin.settings[key]))
+          .setPlaceholder(unit)
           .onChange(async (v) => {
-            this.plugin.settings.searchHotkey = v.trim() || DEFAULT_SETTINGS.searchHotkey;
+            const n = Number(v);
+            if (Number.isNaN(n)) return;
+            this.plugin.settings[key] = Math.min(max, Math.max(min, n));
+            await this.plugin.savePluginData();
+          }),
+      );
+  }
+
+  private addTextSetting(
+    name: string,
+    desc: string,
+    key: 'fontColor' | 'backgroundColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey',
+    placeholder: string,
+  ): void {
+    new Setting(this.containerEl)
+      .setName(name)
+      .setDesc(desc)
+      .addText((text) =>
+        text
+          .setPlaceholder(placeholder)
+          .setValue(this.plugin.settings[key])
+          .onChange(async (v) => {
+            const fallback = key === 'searchHotkey' ? DEFAULT_SETTINGS.searchHotkey : '';
+            this.plugin.settings[key] = v.trim() || fallback;
             await this.plugin.savePluginData();
           }),
       );

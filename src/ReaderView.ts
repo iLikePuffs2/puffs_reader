@@ -1,6 +1,6 @@
-import { ItemView, WorkspaceLeaf, Menu, TFile, setIcon } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Menu, TFile, ViewStateResult, setIcon } from 'obsidian';
 import PuffsReaderPlugin from './main';
-import { Chapter, SearchMatch, SUPPORTED_ENCODINGS } from './types';
+import { BookSettings, Chapter, DEFAULT_CHAPTER_TITLE_REGEX, SearchMatch, SUPPORTED_ENCODINGS } from './types';
 
 export const READER_VIEW_TYPE = 'puffs-reader-view';
 
@@ -10,12 +10,10 @@ interface ReaderPosition {
 }
 
 /**
- * Puffs Reader 阅读器核心视图
+ * Puffs Reader 阅读器核心视图。
  *
- * 这版不再依赖滚动条模拟翻页，而是只渲染当前页可见内容：
- * - 页首位置用「段落索引 + 字符偏移」记录，搜索返回和进度恢复会更精确。
- * - 翻页时通过真实 DOM 测量找到最后一条完整可见行，下一页从它之后继续。
- * - 搜索面板和目录共用同一个左侧栏，避免额外浮层干扰阅读区域。
+ * 只渲染当前页内容，并用「段落索引 + 字符偏移」记录页首/页尾，保证翻页连续。
+ * 单书设置只保存真正与当前书相关的覆写项；没有覆写时全部回退到全局设置。
  */
 export class ReaderView extends ItemView {
   plugin: PuffsReaderPlugin;
@@ -29,6 +27,7 @@ export class ReaderView extends ItemView {
   private bodyEl!: HTMLElement;
   private tocSidebar!: HTMLElement;
   private tocTitleEl!: HTMLElement;
+  private tocModeBtn!: HTMLElement;
   private tocListEl!: HTMLElement;
   private searchPaneEl!: HTMLElement;
   private searchInput!: HTMLInputElement;
@@ -37,6 +36,7 @@ export class ReaderView extends ItemView {
   private readingArea!: HTMLElement;
   private contentContainer!: HTMLElement;
   private floatingControls!: HTMLElement;
+  private settingsBtn!: HTMLElement;
   private typographyPanel!: HTMLElement;
   private encodingBtn!: HTMLElement;
   private chapterTitleEl!: HTMLElement;
@@ -100,14 +100,14 @@ export class ReaderView extends ItemView {
     return { file: this.filePath };
   }
 
-  async setState(state: Record<string, unknown>, result: Record<string, unknown>): Promise<void> {
-    const path = state?.file as string | undefined;
+  async setState(state: unknown, result: ViewStateResult): Promise<void> {
+    const viewState = state as Record<string, unknown> | null;
+    const path = viewState?.file as string | undefined;
     if (path && path !== this.filePath) {
       this.filePath = path;
       const file = this.app.vault.getAbstractFileByPath(path);
       if (file instanceof TFile) {
         this.currentFile = file;
-        this.leaf.updateHeader();
         await this.loadContent();
       }
     }
@@ -131,6 +131,7 @@ export class ReaderView extends ItemView {
     this.buildReadingArea();
     this.buildTypographyPanel();
     this.bindGlobalKeys();
+    this.applyTypography();
   }
 
   private buildTocSidebar(): void {
@@ -138,12 +139,12 @@ export class ReaderView extends ItemView {
 
     const header = this.tocSidebar.createDiv({ cls: 'puffs-toc-header' });
     this.tocTitleEl = header.createSpan({ text: '目录' });
-    const searchBtn = header.createEl('button', {
+    this.tocModeBtn = header.createEl('button', {
       cls: 'puffs-icon-btn puffs-toc-search-btn',
       attr: { 'aria-label': '全文搜索' },
     });
-    setIcon(searchBtn, 'search');
-    searchBtn.addEventListener('click', () => this.toggleSearchMode());
+    setIcon(this.tocModeBtn, 'search');
+    this.tocModeBtn.addEventListener('click', () => this.toggleSearchMode());
 
     this.tocListEl = this.tocSidebar.createDiv({ cls: 'puffs-toc-list' });
 
@@ -183,12 +184,12 @@ export class ReaderView extends ItemView {
     setIcon(tocBtn, 'list');
     tocBtn.addEventListener('click', () => this.toggleToc());
 
-    const settingsBtn = this.floatingControls.createEl('button', {
+    this.settingsBtn = this.floatingControls.createEl('button', {
       cls: 'puffs-icon-btn',
-      attr: { 'aria-label': '排版设置' },
+      attr: { 'aria-label': '书籍设置' },
     });
-    setIcon(settingsBtn, 'settings');
-    settingsBtn.addEventListener('click', () => this.toggleTypography());
+    setIcon(this.settingsBtn, 'settings');
+    this.settingsBtn.addEventListener('click', () => this.toggleTypography());
 
     this.searchBackBtn = this.readingArea.createEl('button', {
       cls: 'puffs-search-back puffs-hidden',
@@ -200,6 +201,7 @@ export class ReaderView extends ItemView {
     this.contentContainer = this.readingArea.createDiv({ cls: 'puffs-page-content' });
 
     this.readingArea.addEventListener('keydown', (e) => this.handleKeydown(e));
+    this.readingArea.addEventListener('pointerdown', (e) => this.closeTypographyOnOutsideClick(e));
     this.readingArea.addEventListener('wheel', (e) => {
       e.preventDefault();
       if (Math.abs(e.deltaY) < 10) return;
@@ -225,7 +227,8 @@ export class ReaderView extends ItemView {
 
     this.fileBuffer = await this.app.vault.readBinary(this.currentFile);
     const saved = this.plugin.getProgress(this.currentFile.path);
-    const { text, encoding } = this.decodeBuffer(this.fileBuffer, saved?.encoding);
+    const bookSettings = this.getBookSettings();
+    const { text, encoding } = this.decodeBuffer(this.fileBuffer, bookSettings.encoding ?? saved?.encoding);
 
     this.currentEncoding = encoding;
     this.paragraphs = this.processText(text);
@@ -242,10 +245,7 @@ export class ReaderView extends ItemView {
     this.readingArea.focus();
   }
 
-  private decodeBuffer(
-    buffer: ArrayBuffer,
-    forceEncoding?: string,
-  ): { text: string; encoding: string } {
+  private decodeBuffer(buffer: ArrayBuffer, forceEncoding?: string): { text: string; encoding: string } {
     if (forceEncoding) {
       try {
         return {
@@ -291,6 +291,7 @@ export class ReaderView extends ItemView {
     const { text } = this.decodeBuffer(this.fileBuffer, encoding);
     this.currentEncoding = encoding;
     this.paragraphs = this.processText(text);
+    this.updateBookSettings({ encoding });
     this.parseChapters();
     this.buildTocList();
     this.currentPageStart = { paraIndex: 0, charOffset: 0 };
@@ -299,7 +300,6 @@ export class ReaderView extends ItemView {
       paragraphIndex: 0,
       charOffset: 0,
       lastRead: Date.now(),
-      encoding,
     });
     this.refreshTypographyPanel();
     this.renderCurrentPage();
@@ -343,8 +343,7 @@ export class ReaderView extends ItemView {
       return;
     }
 
-    // Obsidian 刚创建 leaf 时可能还没完成布局；此时 clientHeight 为 0，
-    // 如果立刻测量会误判整本书都能放进一页，所以等下一帧再渲染。
+    // Obsidian 刚创建 leaf 时可能还没完成布局；此时 clientHeight 为 0。
     if (this.contentContainer.clientHeight < 40) {
       requestAnimationFrame(() => {
         if (this.contentContainer.clientHeight >= 40) this.renderCurrentPage();
@@ -366,8 +365,13 @@ export class ReaderView extends ItemView {
     this.contentContainer.empty();
     let offset = start.charOffset;
     let lastFit = start;
+    const chapterEndPara = this.getChapterEndPara(start.paraIndex);
 
     for (let pi = start.paraIndex; pi < this.paragraphs.length; pi++) {
+      if (chapterEndPara !== null && pi >= chapterEndPara) {
+        return this.clampPosition({ paraIndex: chapterEndPara, charOffset: 0 });
+      }
+
       const text = this.paragraphs[pi];
       const slice = text.slice(offset);
       const para = this.createParagraphEl(slice, pi, offset, false);
@@ -547,11 +551,12 @@ export class ReaderView extends ItemView {
 
   private parseChapters(): void {
     this.chapters = [];
-    if (!this.plugin.settings.tocRegex) return;
+    const tocRegexText = this.getEffectiveTocRegex();
+    if (!tocRegexText) return;
 
     let regex: RegExp;
     try {
-      regex = new RegExp(this.plugin.settings.tocRegex);
+      regex = new RegExp(tocRegexText);
     } catch {
       return;
     }
@@ -559,9 +564,32 @@ export class ReaderView extends ItemView {
     for (let i = 0; i < this.paragraphs.length; i++) {
       const line = this.paragraphs[i].trim();
       if (line && regex.test(line)) {
-        this.chapters.push({ title: line, startParaIndex: i, level: 1 });
+        this.chapters.push({
+          title: this.extractChapterTitle(line),
+          rawTitle: line,
+          startParaIndex: i,
+          level: 1,
+        });
       }
     }
+  }
+
+  private extractChapterTitle(line: string): string {
+    const customRegex = this.getBookSettings().chapterTitleRegex ?? DEFAULT_CHAPTER_TITLE_REGEX;
+    try {
+      const match = line.match(new RegExp(customRegex));
+      const captured = match?.slice(1).find((part) => part && part.trim().length > 0)?.trim();
+      if (captured) return captured;
+    } catch {
+      // 正则错误时回退原始章节行，避免目录消失。
+    }
+    return line;
+  }
+
+  private getChapterEndPara(paraIndex: number): number | null {
+    const active = this.getActiveChapterIndex(paraIndex);
+    if (active < 0) return null;
+    return this.chapters[active + 1]?.startParaIndex ?? null;
   }
 
   private buildTocList(): void {
@@ -572,8 +600,9 @@ export class ReaderView extends ItemView {
       return;
     }
 
-    this.chapters.forEach((ch, idx) => {
+    this.chapters.forEach((ch) => {
       const item = this.tocListEl.createDiv({ cls: 'puffs-toc-item', text: ch.title });
+      item.setAttribute('title', ch.rawTitle);
       item.addEventListener('click', () => {
         this.jumpToPosition({ paraIndex: ch.startParaIndex, charOffset: 0 });
         this.setSearchMode(false);
@@ -640,6 +669,9 @@ export class ReaderView extends ItemView {
   private setSearchMode(enabled: boolean): void {
     this.isSearchMode = enabled;
     this.tocTitleEl.textContent = enabled ? '全文搜索' : '目录';
+    setIcon(this.tocModeBtn, enabled ? 'list' : 'search');
+    this.tocModeBtn.setAttribute('aria-label', enabled ? '返回目录' : '全文搜索');
+    this.tocModeBtn.setAttribute('title', enabled ? '返回目录' : '全文搜索');
     this.tocListEl.classList.toggle('puffs-hidden', enabled);
     this.searchPaneEl.classList.toggle('puffs-hidden', !enabled);
     if (!enabled) {
@@ -729,10 +761,10 @@ export class ReaderView extends ItemView {
   private refreshTypographyPanel(): void {
     const p = this.typographyPanel;
     p.empty();
-    const s = this.plugin.settings;
+    const bookSettings = this.getBookSettings();
 
     const title = p.createDiv({ cls: 'puffs-typo-title' });
-    title.createSpan({ text: '排版设置' });
+    title.createSpan({ text: '书籍设置' });
     this.encodingBtn = title.createEl('button', {
       cls: 'puffs-icon-btn puffs-encoding-btn',
       text: this.currentEncoding.toUpperCase(),
@@ -740,47 +772,35 @@ export class ReaderView extends ItemView {
     });
     this.encodingBtn.addEventListener('click', (e) => this.showEncodingMenu(e));
 
-    this.addSliderRow(p, '字体大小', s.fontSize, 12, 36, 1, 'px', (v) => this.updateSetting('fontSize', v));
-    this.addSliderRow(p, '字体颜色', Number.NaN, 0, 0, 1, '', null, s.fontColor, (v) => this.updateSetting('fontColor', v));
-    this.addSliderRow(p, '背景颜色', Number.NaN, 0, 0, 1, '', null, s.backgroundColor, (v) => this.updateSetting('backgroundColor', v));
-    this.addSliderRow(p, '字间距', s.letterSpacing, 0, 8, 0.5, 'px', (v) => this.updateSetting('letterSpacing', v));
-    this.addSliderRow(p, '行间距', s.lineHeight, 1, 3.2, 0.1, 'x', (v) => this.updateSetting('lineHeight', v));
-    this.addSliderRow(p, '段间距', s.paragraphSpacing, 0, 48, 2, 'px', (v) => this.updateSetting('paragraphSpacing', v));
-    this.addSliderRow(p, '首行缩进', s.firstLineIndent, 0, 4, 0.5, 'em', (v) => this.updateSetting('firstLineIndent', v));
-    this.addSliderRow(p, '顶部间距', s.paddingTop, 0, 180, 4, 'px', (v) => this.updateSetting('paddingTop', v));
-    this.addSliderRow(p, '底部间距', s.paddingBottom, 0, 180, 4, 'px', (v) => this.updateSetting('paddingBottom', v));
-    this.addSliderRow(p, '阅读宽度', s.contentWidth, 360, 1500, 20, 'px', (v) => this.updateSetting('contentWidth', v));
-
-    this.addToggleRow(p, '显示进度', s.showProgress, (v) => this.updateSetting('showProgress', v));
-    this.addToggleRow(p, '去除空行', s.removeExtraBlankLines, (v) => {
-      this.plugin.settings.removeExtraBlankLines = v;
-      this.plugin.savePluginData();
-      this.loadContent();
+    this.addNumberRow(
+      p,
+      '首行缩进',
+      this.getEffectiveFirstLineIndent(),
+      0,
+      4,
+      0.1,
+      'em',
+      (v) => {
+        this.updateBookSettings({ firstLineIndent: v });
+        this.applyTypography();
+        this.renderCurrentPage();
+      },
+    );
+    this.addTextRow(p, '目录正则', this.getEffectiveTocRegex(), (v) => {
+      this.updateBookSettings({ tocRegex: v || undefined });
+      this.parseChapters();
+      this.buildTocList();
+      this.renderCurrentPage();
     });
-    this.addTextRow(p, '目录正则', s.tocRegex, (v) => {
-      this.plugin.settings.tocRegex = v;
-      this.plugin.savePluginData();
+    this.addTextRow(p, '章名正则', bookSettings.chapterTitleRegex ?? DEFAULT_CHAPTER_TITLE_REGEX, (v) => {
+      this.updateBookSettings({ chapterTitleRegex: v || undefined });
       this.parseChapters();
       this.buildTocList();
       this.updatePageMeta();
     });
-    this.addTextRow(p, '搜索快捷键', s.searchHotkey, (v) => {
-      this.plugin.settings.searchHotkey = v || 'Ctrl+F';
-      this.plugin.savePluginData();
-    });
   }
 
-  private updateSetting<K extends keyof PuffsReaderPlugin['settings']>(
-    key: K,
-    value: PuffsReaderPlugin['settings'][K],
-  ): void {
-    this.plugin.settings[key] = value;
-    this.plugin.savePluginData();
-    this.applyTypography();
-    this.renderCurrentPage();
-  }
-
-  private addSliderRow(
+  private addNumberRow(
     parent: HTMLElement,
     label: string,
     value: number,
@@ -788,54 +808,23 @@ export class ReaderView extends ItemView {
     max: number,
     step: number,
     unit: string,
-    onNumberChange: ((v: number) => void) | null,
-    textValue?: string,
-    onTextChange?: (v: string) => void,
+    onChange: (v: number) => void,
   ): void {
     const row = parent.createDiv({ cls: 'puffs-typo-row' });
     row.createSpan({ cls: 'puffs-typo-label', text: label });
-
-    if (onTextChange) {
-      const input = row.createEl('input', {
-        cls: 'puffs-typo-text-input',
-        attr: { type: 'text', placeholder: 'R,G,B 或留空' },
-      }) as HTMLInputElement;
-      input.value = textValue ?? '';
-      input.addEventListener('input', () => onTextChange(input.value.trim()));
-      return;
-    }
-
-    const slider = row.createEl('input', {
-      cls: 'puffs-typo-slider',
-      attr: { type: 'range', min: String(min), max: String(max), step: String(step) },
-    }) as HTMLInputElement;
-    slider.value = String(value);
     const input = row.createEl('input', {
       cls: 'puffs-typo-number',
       attr: { type: 'number', min: String(min), max: String(max), step: String(step) },
     }) as HTMLInputElement;
     input.value = String(value);
     row.createSpan({ cls: 'puffs-typo-unit', text: unit });
-
-    const update = (raw: string): void => {
-      const parsed = Number(raw);
-      if (Number.isNaN(parsed) || !onNumberChange) return;
+    input.addEventListener('change', () => {
+      const parsed = Number(input.value);
+      if (Number.isNaN(parsed)) return;
       const next = Math.min(max, Math.max(min, parsed));
-      slider.value = String(next);
       input.value = String(next);
-      onNumberChange(next);
-    };
-    slider.addEventListener('input', () => update(slider.value));
-    input.addEventListener('change', () => update(input.value));
-  }
-
-  private addToggleRow(parent: HTMLElement, label: string, value: boolean, onChange: (v: boolean) => void): void {
-    const row = parent.createDiv({ cls: 'puffs-typo-row' });
-    const text = row.createEl('label', { cls: 'puffs-typo-toggle-label' });
-    const cb = text.createEl('input', { attr: { type: 'checkbox' } }) as HTMLInputElement;
-    cb.checked = value;
-    text.appendText(` ${label}`);
-    cb.addEventListener('change', () => onChange(cb.checked));
+      onChange(next);
+    });
   }
 
   private addTextRow(parent: HTMLElement, label: string, value: string, onChange: (v: string) => void): void {
@@ -847,28 +836,81 @@ export class ReaderView extends ItemView {
   }
 
   private applyTypography(): void {
+    if (!this.rootEl || !this.contentContainer) return;
+
     const s = this.plugin.settings;
     const rgbBg = s.backgroundColor ? `rgb(${s.backgroundColor})` : '';
     const rgbFont = s.fontColor ? `rgb(${s.fontColor})` : '';
+    const chapterColor = s.chapterMetaColor ? `rgb(${s.chapterMetaColor})` : '';
+    const progressColor = s.progressMetaColor ? `rgb(${s.progressMetaColor})` : '';
 
     this.rootEl.style.setProperty('--puffs-bg-color', rgbBg || 'var(--background-primary)');
     this.readingArea.style.setProperty('--puffs-bg-color', rgbBg || 'var(--background-primary)');
     this.contentContainer.style.setProperty('--puffs-font-size', `${s.fontSize}px`);
     this.contentContainer.style.setProperty('--puffs-line-height', String(s.lineHeight));
     this.contentContainer.style.setProperty('--puffs-para-spacing', `${s.paragraphSpacing}px`);
-    this.contentContainer.style.setProperty('--puffs-indent', `${s.firstLineIndent}em`);
+    this.contentContainer.style.setProperty('--puffs-indent', `${this.getEffectiveFirstLineIndent()}em`);
     this.contentContainer.style.setProperty('--puffs-content-width', `${s.contentWidth}px`);
     this.contentContainer.style.setProperty('--puffs-letter-spacing', `${s.letterSpacing}px`);
     this.contentContainer.style.setProperty('--puffs-padding-top', `${s.paddingTop}px`);
     this.contentContainer.style.setProperty('--puffs-padding-bottom', `${s.paddingBottom}px`);
+    this.rootEl.style.setProperty('--puffs-sidebar-width', `${s.sidebarWidth}px`);
+    this.rootEl.style.setProperty('--puffs-toc-font-size', `${s.tocFontSize}px`);
+    this.rootEl.style.setProperty('--puffs-chapter-meta-size', `${s.chapterMetaFontSize}px`);
+    this.rootEl.style.setProperty('--puffs-chapter-meta-top', `${s.chapterMetaTop}px`);
+    this.rootEl.style.setProperty('--puffs-progress-meta-size', `${s.progressMetaFontSize}px`);
+    this.rootEl.style.setProperty('--puffs-progress-meta-bottom', `${s.progressMetaBottom}px`);
+
     if (rgbFont) this.contentContainer.style.setProperty('--puffs-font-color', rgbFont);
     else this.contentContainer.style.removeProperty('--puffs-font-color');
+    if (chapterColor) this.rootEl.style.setProperty('--puffs-chapter-meta-color', chapterColor);
+    else this.rootEl.style.removeProperty('--puffs-chapter-meta-color');
+    if (progressColor) this.rootEl.style.setProperty('--puffs-progress-meta-color', progressColor);
+    else this.rootEl.style.removeProperty('--puffs-progress-meta-color');
   }
 
   private toggleTypography(): void {
-    this.isTypographyOpen = !this.isTypographyOpen;
-    this.typographyPanel.classList.toggle('puffs-hidden', !this.isTypographyOpen);
-    if (this.isTypographyOpen) this.refreshTypographyPanel();
+    if (this.isTypographyOpen) this.closeTypography();
+    else {
+      this.isTypographyOpen = true;
+      this.refreshTypographyPanel();
+      this.typographyPanel.classList.remove('puffs-hidden');
+    }
+  }
+
+  private closeTypography(): void {
+    this.isTypographyOpen = false;
+    this.typographyPanel.classList.add('puffs-hidden');
+  }
+
+  private closeTypographyOnOutsideClick(e: PointerEvent): void {
+    if (!this.isTypographyOpen) return;
+    const target = e.target as Node | null;
+    if (!target) return;
+    if (this.typographyPanel.contains(target) || this.settingsBtn.contains(target)) return;
+    this.closeTypography();
+  }
+
+  private getBookSettings(): BookSettings {
+    if (!this.currentFile) return {};
+    return this.plugin.getBookSettings(this.currentFile.path);
+  }
+
+  private getEffectiveFirstLineIndent(): number {
+    return this.getBookSettings().firstLineIndent ?? this.plugin.settings.firstLineIndent;
+  }
+
+  private getEffectiveTocRegex(): string {
+    return this.getBookSettings().tocRegex ?? this.plugin.settings.tocRegex;
+  }
+
+  private updateBookSettings(partial: BookSettings): void {
+    if (!this.currentFile) return;
+    const next = {
+      ...this.getBookSettings(),
+      ...partial,
+    };
+    this.plugin.saveBookSettings(this.currentFile.path, next);
   }
 
   private bindGlobalKeys(): void {
@@ -912,7 +954,7 @@ export class ReaderView extends ItemView {
       e.preventDefault();
       this.pageUp();
     } else if (e.key === 'Escape') {
-      if (this.isTypographyOpen) this.toggleTypography();
+      if (this.isTypographyOpen) this.closeTypography();
       else if (this.isSearchMode) this.setSearchMode(false);
       else if (this.isTocOpen) this.toggleToc();
     }
@@ -929,7 +971,6 @@ export class ReaderView extends ItemView {
       paragraphIndex: this.currentPageStart.paraIndex,
       charOffset: this.currentPageStart.charOffset,
       lastRead: Date.now(),
-      encoding: this.currentEncoding !== 'utf-8' ? this.currentEncoding : undefined,
     });
   }
 

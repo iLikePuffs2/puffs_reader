@@ -1,35 +1,63 @@
 /** 阅读器全局设置 */
 export interface ReaderSettings {
-  /** 字体大小 (px) */
+  /** 正文字体大小 (px) */
   fontSize: number;
-  /** 行间距 (倍数) */
+  /** 正文行间距 (倍数) */
   lineHeight: number;
   /** 段落间距 (px) */
   paragraphSpacing: number;
-  /** 首行缩进 (em) */
+  /** 全局首行缩进 (em)，单书设置可以覆写 */
   firstLineIndent: number;
   /** 阅读区宽度 (px) */
   contentWidth: number;
   /** 字间距 (px) */
   letterSpacing: number;
-  /** 最上方文字与顶部的间距 (px) */
+  /** 正文内容与页面顶部的距离 (px) */
   paddingTop: number;
-  /** 最下方文字与底部的间距 (px) */
+  /** 正文内容与页面底部的距离 (px) */
   paddingBottom: number;
-  /** 字体颜色 (RGB, e.g. "51,51,51"，空字符串跟随主题) */
+  /** 正文字体颜色 (RGB, e.g. "51,51,51"，空字符串跟随主题) */
   fontColor: string;
-  /** 背景颜色 (RGB, e.g. "233,216,188"，空字符串跟随主题) */
+  /** 书籍背景颜色 (RGB, e.g. "233,216,188"，空字符串跟随主题) */
   backgroundColor: string;
+  /** 顶部章名字号 (px) */
+  chapterMetaFontSize: number;
+  /** 顶部章名颜色 (RGB，空字符串跟随主题 muted 色) */
+  chapterMetaColor: string;
+  /** 顶部章名距离页面顶部的位置 (px) */
+  chapterMetaTop: number;
+  /** 底部百分比字号 (px) */
+  progressMetaFontSize: number;
+  /** 底部百分比颜色 (RGB，空字符串跟随主题 muted 色) */
+  progressMetaColor: string;
+  /** 底部百分比距离页面底部的位置 (px) */
+  progressMetaBottom: number;
+  /** 左侧栏宽度 (px) */
+  sidebarWidth: number;
+  /** 目录字体大小 (px) */
+  tocFontSize: number;
   /** 是否显示阅读进度百分比 */
   showProgress: boolean;
   /** 是否去除多余空行 */
   removeExtraBlankLines: boolean;
-  /** 目录匹配正则 */
+  /** 全局目录匹配正则，单书设置可以覆写 */
   tocRegex: string;
   /** 默认编码 */
   defaultEncoding: string;
   /** 全文搜索快捷键 */
   searchHotkey: string;
+}
+
+/** 每本书的专用设置；undefined 表示回退全局设置 */
+export interface BookSettings {
+  /** 当前书的编码覆写 */
+  encoding?: string;
+  /** 当前书的首行缩进覆写 (em) */
+  firstLineIndent?: number;
+  /** 当前书的目录匹配正则覆写 */
+  tocRegex?: string;
+  /** 当前书的章名提取正则覆写 */
+  chapterTitleRegex?: string;
 }
 
 /** 每本书的阅读进度 */
@@ -40,14 +68,16 @@ export interface BookProgress {
   charOffset?: number;
   /** 上次阅读时间戳 */
   lastRead: number;
-  /** 用户选择的编码（覆写自动检测） */
+  /** 兼容旧数据：旧版本把编码覆写存放在 progress 中 */
   encoding?: string;
 }
 
 /** 解析出的章节 */
 export interface Chapter {
-  /** 章节标题 */
+  /** 展示用章节标题 */
   title: string;
+  /** 原始章节行 */
+  rawTitle: string;
   /** 起始段落索引 */
   startParaIndex: number;
   /** 层级 (1=卷, 2=章) */
@@ -64,26 +94,6 @@ export interface SearchMatch {
   length: number;
 }
 
-/** 虚拟渲染块 */
-export interface Block {
-  /** 块对应的 DOM 容器 */
-  element: HTMLElement;
-  /** 块内第一个段落索引 */
-  startPara: number;
-  /** 块结束段落索引（不包含） */
-  endPara: number;
-  /** 当前是否已经挂载真实段落 DOM */
-  rendered: boolean;
-  /** 卸载前测量到的真实高度，用于维持滚动条长度 */
-  measuredHeight: number;
-}
-
-/** 每个虚拟块包含的段落数量 */
-export const BLOCK_SIZE = 80;
-
-/** 可视区域上下额外保留的块数量 */
-export const RENDER_BUFFER = 2;
-
 /** 支持的编码列表 */
 export const SUPPORTED_ENCODINGS = [
   { value: 'utf-8', label: 'UTF-8' },
@@ -95,6 +105,9 @@ export const SUPPORTED_ENCODINGS = [
   { value: 'shift_jis', label: 'Shift_JIS' },
   { value: 'euc-kr', label: 'EUC-KR' },
 ];
+
+export const DEFAULT_TOC_REGEX = '^\\s*第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇].*$';
+export const DEFAULT_CHAPTER_TITLE_REGEX = '^\\s*(?:第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇])\\s*(.*)$';
 
 /** 默认设置 */
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -108,9 +121,17 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   paddingBottom: 40,
   fontColor: '',
   backgroundColor: '',
+  chapterMetaFontSize: 12,
+  chapterMetaColor: '',
+  chapterMetaTop: 10,
+  progressMetaFontSize: 12,
+  progressMetaColor: '',
+  progressMetaBottom: 10,
+  sidebarWidth: 272,
+  tocFontSize: 13,
   showProgress: true,
   removeExtraBlankLines: true,
-  tocRegex: '^\\s*第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇].*$',
+  tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: 'utf-8',
   searchHotkey: 'Ctrl+F',
 };

@@ -1,12 +1,13 @@
 import { Plugin, TFile, FuzzySuggestModal, WorkspaceLeaf } from 'obsidian';
 import { ReaderView, READER_VIEW_TYPE } from './ReaderView';
 import { SettingsTab } from './SettingsTab';
-import { ReaderSettings, BookProgress, DEFAULT_SETTINGS } from './types';
+import { ReaderSettings, BookProgress, BookSettings, DEFAULT_SETTINGS } from './types';
 
 /** 插件持久化数据结构 */
 interface PluginData {
   settings: ReaderSettings;
   progress: Record<string, BookProgress>;
+  bookSettings?: Record<string, BookSettings>;
 }
 
 /**
@@ -45,6 +46,7 @@ class TxtFileSuggestModal extends FuzzySuggestModal<TFile> {
 export default class PuffsReaderPlugin extends Plugin {
   settings: ReaderSettings = DEFAULT_SETTINGS;
   progress: Record<string, BookProgress> = {};
+  bookSettings: Record<string, BookSettings> = {};
 
   async onload(): Promise<void> {
     await this.loadPluginData();
@@ -117,12 +119,24 @@ export default class PuffsReaderPlugin extends Plugin {
     const data = (await this.loadData()) as PluginData | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.settings);
     this.progress = data?.progress ?? {};
+    this.bookSettings = data?.bookSettings ?? {};
+
+    // 旧版本把编码覆写存在 progress 中；这里保留读取兼容，同时迁移到单书设置。
+    for (const [filePath, progress] of Object.entries(this.progress)) {
+      if (progress.encoding && !this.bookSettings[filePath]?.encoding) {
+        this.bookSettings[filePath] = {
+          ...this.bookSettings[filePath],
+          encoding: progress.encoding,
+        };
+      }
+    }
   }
 
   async savePluginData(): Promise<void> {
     await this.saveData({
       settings: this.settings,
       progress: this.progress,
+      bookSettings: this.bookSettings,
     } as PluginData);
   }
 
@@ -134,6 +148,22 @@ export default class PuffsReaderPlugin extends Plugin {
 
   async saveProgress(filePath: string, progress: BookProgress): Promise<void> {
     this.progress[filePath] = progress;
+    await this.savePluginData();
+  }
+
+  getBookSettings(filePath: string): BookSettings {
+    return this.bookSettings[filePath] ?? {};
+  }
+
+  async saveBookSettings(filePath: string, settings: BookSettings): Promise<void> {
+    const compact: BookSettings = {};
+    if (settings.encoding) compact.encoding = settings.encoding;
+    if (settings.firstLineIndent !== undefined) compact.firstLineIndent = settings.firstLineIndent;
+    if (settings.tocRegex !== undefined && settings.tocRegex !== '') compact.tocRegex = settings.tocRegex;
+    if (settings.chapterTitleRegex !== undefined && settings.chapterTitleRegex !== '') {
+      compact.chapterTitleRegex = settings.chapterTitleRegex;
+    }
+    this.bookSettings[filePath] = compact;
     await this.savePluginData();
   }
 }
