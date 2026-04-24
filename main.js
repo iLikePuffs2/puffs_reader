@@ -51,6 +51,7 @@ var DEFAULT_SETTINGS = {
   paddingBottom: 40,
   fontColor: "",
   backgroundColor: "",
+  floatingButtonColor: "",
   chapterMetaFontSize: 12,
   chapterMetaColor: "",
   chapterMetaTop: 10,
@@ -93,6 +94,12 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.resizeObserver = null;
     this.boundGlobalKeydown = null;
     this.plugin = plugin;
+    this.scope = new import_obsidian.Scope(this.app.scope);
+    this.scope.register(null, "Escape", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      return false;
+    });
   }
   getViewType() {
     return READER_VIEW_TYPE;
@@ -171,7 +178,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     const searchHeader = this.searchPaneEl.createDiv({ cls: "puffs-search-header" });
     this.searchInput = searchHeader.createEl("input", {
       cls: "puffs-search-input",
-      attr: { type: "text", placeholder: "\u5168\u4E66\u641C\u7D22" }
+      attr: { type: "text", placeholder: "" }
     });
     this.searchInput.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
@@ -344,6 +351,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.currentPageStart = this.clampPosition(this.currentPageStart);
     this.currentPageEnd = this.measurePageEnd(this.currentPageStart);
     this.paintPage(this.currentPageStart, this.currentPageEnd);
+    this.trimPaintedPageToFit();
     this.updatePageMeta();
     this.scheduleProgressSave();
     this.isRenderingPage = false;
@@ -414,7 +422,52 @@ var ReaderView = class extends import_obsidian.ItemView {
     return p;
   }
   isContentOverflowing() {
-    return this.contentContainer.scrollHeight > this.contentContainer.clientHeight + 1;
+    return this.contentContainer.scrollHeight > this.contentContainer.clientHeight;
+  }
+  /**
+   * 最终以真实绘制结果兜底，防止章节边界、沉浸模式高度变化或字体取整让最后一行探出底部。
+   * 多段页面优先退掉最后一段；单个长段才二分截断，避免页面被整段清空。
+   */
+  trimPaintedPageToFit() {
+    var _a, _b;
+    let guard = 0;
+    while (this.isContentOverflowing() && guard < 20) {
+      const last = this.contentContainer.lastElementChild;
+      if (!last) return;
+      const paraIndex = Number(last.dataset.paraIndex);
+      const charOffset = Number(last.dataset.charOffset);
+      if (!Number.isFinite(paraIndex) || !Number.isFinite(charOffset)) return;
+      const hasMultipleParagraphs = this.contentContainer.children.length > 1;
+      if (hasMultipleParagraphs) {
+        const nextEnd = this.clampPosition({ paraIndex, charOffset });
+        if (this.comparePositions(nextEnd, this.currentPageStart) <= 0) return;
+        this.currentPageEnd = nextEnd;
+        this.paintPage(this.currentPageStart, this.currentPageEnd);
+        guard++;
+        continue;
+      }
+      const paragraphEnd = paraIndex === this.currentPageEnd.paraIndex ? this.currentPageEnd.charOffset : (_b = (_a = this.paragraphs[paraIndex]) == null ? void 0 : _a.length) != null ? _b : charOffset;
+      const visibleLength = Math.max(0, paragraphEnd - charOffset);
+      if (visibleLength <= 1) return;
+      let low = 1;
+      let high = visibleLength;
+      let best = 0;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const candidate = this.clampPosition({ paraIndex, charOffset: charOffset + mid });
+        this.paintPage(this.currentPageStart, candidate);
+        if (this.isContentOverflowing()) {
+          high = mid - 1;
+        } else {
+          best = mid;
+          low = mid + 1;
+        }
+      }
+      if (best <= 0) return;
+      this.currentPageEnd = this.clampPosition({ paraIndex, charOffset: charOffset + best });
+      this.paintPage(this.currentPageStart, this.currentPageEnd);
+      guard++;
+    }
   }
   /**
    * 返回当前溢出段落中最后一条「完整可见行」结束的字符偏移。
@@ -428,7 +481,8 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (measurableLength <= 0) return 0;
     const style = getComputedStyle(this.contentContainer);
     const bottomPadding = parseFloat(style.paddingBottom || "0") || 0;
-    const bottomLimit = this.contentContainer.getBoundingClientRect().bottom - bottomPadding;
+    const bottomGuard = 3;
+    const bottomLimit = this.contentContainer.getBoundingClientRect().bottom - bottomPadding - bottomGuard;
     const range = document.createRange();
     let lastLineTop = Number.NaN;
     let lastLineBottom = 0;
@@ -707,10 +761,19 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (!this.searchJumpBackPos) return;
     this.searchJumpPageTurns += 1;
     if (this.searchJumpPageTurns >= 5) {
-      this.searchJumpBackPos = null;
-      this.searchJumpPageTurns = 0;
-      this.searchBackBtn.classList.add("puffs-hidden");
+      this.clearSearchJumpAndHighlights();
     }
+  }
+  clearSearchJumpAndHighlights() {
+    this.searchJumpBackPos = null;
+    this.searchJumpPageTurns = 0;
+    this.searchBackBtn.classList.add("puffs-hidden");
+    this.searchQuery = "";
+    this.searchResults = [];
+    this.searchInput.value = "";
+    this.searchInfoEl.textContent = "";
+    this.searchResultsEl.empty();
+    this.renderCurrentPage();
   }
   refreshTypographyPanel() {
     var _a;
@@ -783,6 +846,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     const s = this.plugin.settings;
     const rgbBg = s.backgroundColor ? `rgb(${s.backgroundColor})` : "";
     const rgbFont = s.fontColor ? `rgb(${s.fontColor})` : "";
+    const floatingButtonColor = s.floatingButtonColor ? `rgb(${s.floatingButtonColor})` : "";
     const chapterColor = s.chapterMetaColor ? `rgb(${s.chapterMetaColor})` : "";
     const progressColor = s.progressMetaColor ? `rgb(${s.progressMetaColor})` : "";
     this.rootEl.style.setProperty("--puffs-bg-color", rgbBg || "var(--background-primary)");
@@ -797,6 +861,8 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.contentContainer.style.setProperty("--puffs-padding-bottom", `${s.paddingBottom}px`);
     this.rootEl.style.setProperty("--puffs-sidebar-width", `${s.sidebarWidth}px`);
     this.rootEl.style.setProperty("--puffs-toc-font-size", `${s.tocFontSize}px`);
+    if (floatingButtonColor) this.rootEl.style.setProperty("--puffs-floating-button-color", floatingButtonColor);
+    else this.rootEl.style.removeProperty("--puffs-floating-button-color");
     this.rootEl.style.setProperty("--puffs-chapter-meta-size", `${s.chapterMetaFontSize}px`);
     this.rootEl.style.setProperty("--puffs-chapter-meta-top", `${s.chapterMetaTop}px`);
     this.rootEl.style.setProperty("--puffs-progress-meta-size", `${s.progressMetaFontSize}px`);
@@ -994,6 +1060,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     this.addNumberSetting("\u76EE\u5F55\u5B57\u4F53\u5927\u5C0F", "\u5DE6\u4FA7\u76EE\u5F55\u6761\u76EE\u7684\u5B57\u4F53\u5927\u5C0F (px)", "tocFontSize", 11, 20, 1, "px");
     this.addTextSetting("\u5B57\u4F53\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 51,51,51\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "fontColor", "\u4F8B\u5982 51,51,51");
     this.addTextSetting("\u4E66\u7C4D\u80CC\u666F\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 233,216,188\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "backgroundColor", "\u4F8B\u5982 233,216,188");
+    this.addTextSetting("\u53F3\u4E0A\u89D2\u6309\u94AE\u989C\u8272", "RGB \u683C\u5F0F\uFF1B\u63A7\u5236\u9605\u8BFB\u533A\u53F3\u4E0A\u89D2\u4E24\u4E2A\u6D6E\u52A8\u6309\u94AE\u7684\u56FE\u6807\u989C\u8272\u3002", "floatingButtonColor", "\u4F8B\u5982 120,120,120");
     containerEl.createEl("h3", { text: "\u9876\u90E8\u7AE0\u540D\u4E0E\u5E95\u90E8\u8FDB\u5EA6" });
     this.addNumberSetting("\u7AE0\u540D\u5B57\u53F7", "\u9875\u9762\u9876\u90E8\u7AE0\u540D\u5C0F\u5B57\u5927\u5C0F (px)", "chapterMetaFontSize", 9, 20, 1, "px");
     this.addNumberSetting("\u7AE0\u540D\u9876\u90E8\u4F4D\u7F6E", "\u7AE0\u540D\u8DDD\u79BB\u9875\u9762\u9876\u90E8\u7684\u4F4D\u7F6E (px)", "chapterMetaTop", 0, 80, 1, "px");
@@ -1043,30 +1110,27 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     let isSyncing = false;
     const clamp = (value) => Math.min(max, Math.max(min, value));
     const format = (value) => String(value);
-    const syncControls = (value) => {
-      isSyncing = true;
-      sliderControl == null ? void 0 : sliderControl.setValue(value);
-      textControl == null ? void 0 : textControl.setValue(format(value));
-      isSyncing = false;
-    };
-    const save = async (value) => {
+    const save = async (value, syncText) => {
       const next = clamp(value);
       this.plugin.settings[key] = next;
-      syncControls(next);
+      isSyncing = true;
+      sliderControl == null ? void 0 : sliderControl.setValue(next);
+      if (syncText) textControl == null ? void 0 : textControl.setValue(format(next));
+      isSyncing = false;
       await this.plugin.savePluginData();
       this.refreshOpenReaders();
     };
     new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addSlider(
       (slider) => (sliderControl = slider).setLimits(min, max, step).setValue(this.plugin.settings[key]).setDynamicTooltip().onChange((v) => {
         if (isSyncing) return;
-        save(v);
+        save(v, true);
       })
     ).addText(
       (text) => (textControl = text).setValue(String(this.plugin.settings[key])).setPlaceholder(unit).onChange((v) => {
         if (isSyncing) return;
         const n = Number(v);
         if (Number.isNaN(n)) return;
-        save(n);
+        save(n, false);
       })
     );
   }

@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Menu, TFile, ViewStateResult, setIcon } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Menu, TFile, ViewStateResult, setIcon, Scope } from 'obsidian';
 import PuffsReaderPlugin from './main';
 import { BookSettings, Chapter, DEFAULT_CHAPTER_TITLE_REGEX, SearchMatch, SUPPORTED_ENCODINGS } from './types';
 
@@ -67,6 +67,12 @@ export class ReaderView extends ItemView {
   constructor(leaf: WorkspaceLeaf, plugin: PuffsReaderPlugin) {
     super(leaf);
     this.plugin = plugin;
+    this.scope = new Scope(this.app.scope);
+    this.scope.register(null, 'Escape', (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      return false;
+    });
   }
 
   getViewType(): string {
@@ -159,7 +165,7 @@ export class ReaderView extends ItemView {
     const searchHeader = this.searchPaneEl.createDiv({ cls: 'puffs-search-header' });
     this.searchInput = searchHeader.createEl('input', {
       cls: 'puffs-search-input',
-      attr: { type: 'text', placeholder: '全书搜索' },
+      attr: { type: 'text', placeholder: '' },
     });
     this.searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -362,6 +368,7 @@ export class ReaderView extends ItemView {
     this.currentPageStart = this.clampPosition(this.currentPageStart);
     this.currentPageEnd = this.measurePageEnd(this.currentPageStart);
     this.paintPage(this.currentPageStart, this.currentPageEnd);
+    this.trimPaintedPageToFit();
     this.updatePageMeta();
     this.scheduleProgressSave();
     this.isRenderingPage = false;
@@ -453,7 +460,59 @@ export class ReaderView extends ItemView {
   }
 
   private isContentOverflowing(): boolean {
-    return this.contentContainer.scrollHeight > this.contentContainer.clientHeight + 1;
+    return this.contentContainer.scrollHeight > this.contentContainer.clientHeight;
+  }
+
+  /**
+   * 最终以真实绘制结果兜底，防止章节边界、沉浸模式高度变化或字体取整让最后一行探出底部。
+   * 多段页面优先退掉最后一段；单个长段才二分截断，避免页面被整段清空。
+   */
+  private trimPaintedPageToFit(): void {
+    let guard = 0;
+    while (this.isContentOverflowing() && guard < 20) {
+      const last = this.contentContainer.lastElementChild as HTMLElement | null;
+      if (!last) return;
+
+      const paraIndex = Number(last.dataset.paraIndex);
+      const charOffset = Number(last.dataset.charOffset);
+      if (!Number.isFinite(paraIndex) || !Number.isFinite(charOffset)) return;
+
+      const hasMultipleParagraphs = this.contentContainer.children.length > 1;
+      if (hasMultipleParagraphs) {
+        const nextEnd = this.clampPosition({ paraIndex, charOffset });
+        if (this.comparePositions(nextEnd, this.currentPageStart) <= 0) return;
+        this.currentPageEnd = nextEnd;
+        this.paintPage(this.currentPageStart, this.currentPageEnd);
+        guard++;
+        continue;
+      }
+
+      const paragraphEnd = paraIndex === this.currentPageEnd.paraIndex
+        ? this.currentPageEnd.charOffset
+        : this.paragraphs[paraIndex]?.length ?? charOffset;
+      const visibleLength = Math.max(0, paragraphEnd - charOffset);
+      if (visibleLength <= 1) return;
+
+      let low = 1;
+      let high = visibleLength;
+      let best = 0;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const candidate = this.clampPosition({ paraIndex, charOffset: charOffset + mid });
+        this.paintPage(this.currentPageStart, candidate);
+        if (this.isContentOverflowing()) {
+          high = mid - 1;
+        } else {
+          best = mid;
+          low = mid + 1;
+        }
+      }
+
+      if (best <= 0) return;
+      this.currentPageEnd = this.clampPosition({ paraIndex, charOffset: charOffset + best });
+      this.paintPage(this.currentPageStart, this.currentPageEnd);
+      guard++;
+    }
   }
 
   /**
@@ -468,7 +527,8 @@ export class ReaderView extends ItemView {
 
     const style = getComputedStyle(this.contentContainer);
     const bottomPadding = parseFloat(style.paddingBottom || '0') || 0;
-    const bottomLimit = this.contentContainer.getBoundingClientRect().bottom - bottomPadding;
+    const bottomGuard = 3;
+    const bottomLimit = this.contentContainer.getBoundingClientRect().bottom - bottomPadding - bottomGuard;
     const range = document.createRange();
     let lastLineTop = Number.NaN;
     let lastLineBottom = 0;
@@ -783,10 +843,20 @@ export class ReaderView extends ItemView {
     if (!this.searchJumpBackPos) return;
     this.searchJumpPageTurns += 1;
     if (this.searchJumpPageTurns >= 5) {
-      this.searchJumpBackPos = null;
-      this.searchJumpPageTurns = 0;
-      this.searchBackBtn.classList.add('puffs-hidden');
+      this.clearSearchJumpAndHighlights();
     }
+  }
+
+  private clearSearchJumpAndHighlights(): void {
+    this.searchJumpBackPos = null;
+    this.searchJumpPageTurns = 0;
+    this.searchBackBtn.classList.add('puffs-hidden');
+    this.searchQuery = '';
+    this.searchResults = [];
+    this.searchInput.value = '';
+    this.searchInfoEl.textContent = '';
+    this.searchResultsEl.empty();
+    this.renderCurrentPage();
   }
 
   private refreshTypographyPanel(): void {
@@ -875,6 +945,7 @@ export class ReaderView extends ItemView {
     const s = this.plugin.settings;
     const rgbBg = s.backgroundColor ? `rgb(${s.backgroundColor})` : '';
     const rgbFont = s.fontColor ? `rgb(${s.fontColor})` : '';
+    const floatingButtonColor = s.floatingButtonColor ? `rgb(${s.floatingButtonColor})` : '';
     const chapterColor = s.chapterMetaColor ? `rgb(${s.chapterMetaColor})` : '';
     const progressColor = s.progressMetaColor ? `rgb(${s.progressMetaColor})` : '';
 
@@ -890,6 +961,8 @@ export class ReaderView extends ItemView {
     this.contentContainer.style.setProperty('--puffs-padding-bottom', `${s.paddingBottom}px`);
     this.rootEl.style.setProperty('--puffs-sidebar-width', `${s.sidebarWidth}px`);
     this.rootEl.style.setProperty('--puffs-toc-font-size', `${s.tocFontSize}px`);
+    if (floatingButtonColor) this.rootEl.style.setProperty('--puffs-floating-button-color', floatingButtonColor);
+    else this.rootEl.style.removeProperty('--puffs-floating-button-color');
     this.rootEl.style.setProperty('--puffs-chapter-meta-size', `${s.chapterMetaFontSize}px`);
     this.rootEl.style.setProperty('--puffs-chapter-meta-top', `${s.chapterMetaTop}px`);
     this.rootEl.style.setProperty('--puffs-progress-meta-size', `${s.progressMetaFontSize}px`);

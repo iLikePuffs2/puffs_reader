@@ -32,6 +32,7 @@ export class SettingsTab extends PluginSettingTab {
 
     this.addTextSetting('字体颜色', 'RGB 格式，如 51,51,51。留空跟随主题。', 'fontColor', '例如 51,51,51');
     this.addTextSetting('书籍背景颜色', 'RGB 格式，如 233,216,188。留空跟随主题。', 'backgroundColor', '例如 233,216,188');
+    this.addTextSetting('右上角按钮颜色', 'RGB 格式；控制阅读区右上角两个浮动按钮的图标颜色。', 'floatingButtonColor', '例如 120,120,120');
 
     containerEl.createEl('h3', { text: '顶部章名与底部进度' });
     this.addNumberSetting('章名字号', '页面顶部章名小字大小 (px)', 'chapterMetaFontSize', 9, 20, 1, 'px');
@@ -109,16 +110,13 @@ export class SettingsTab extends PluginSettingTab {
 
     const clamp = (value: number): number => Math.min(max, Math.max(min, value));
     const format = (value: number): string => String(value);
-    const syncControls = (value: number): void => {
-      isSyncing = true;
-      sliderControl?.setValue(value);
-      textControl?.setValue(format(value));
-      isSyncing = false;
-    };
-    const save = async (value: number): Promise<void> => {
+    const save = async (value: number, syncText: boolean): Promise<void> => {
       const next = clamp(value);
       this.plugin.settings[key] = next;
-      syncControls(next);
+      isSyncing = true;
+      sliderControl?.setValue(next);
+      if (syncText) textControl?.setValue(format(next));
+      isSyncing = false;
       await this.plugin.savePluginData();
       this.refreshOpenReaders();
     };
@@ -133,7 +131,7 @@ export class SettingsTab extends PluginSettingTab {
           .setDynamicTooltip()
           .onChange((v) => {
             if (isSyncing) return;
-            save(v);
+            save(v, true);
           }),
       )
       .addText((text) =>
@@ -144,7 +142,8 @@ export class SettingsTab extends PluginSettingTab {
             if (isSyncing) return;
             const n = Number(v);
             if (Number.isNaN(n)) return;
-            save(n);
+            // 输入框编辑中只同步滑块和预览，不回写文本框，避免用户输入 900 时刚键入 9 就被夹到 360。
+            save(n, false);
           }),
       );
   }
@@ -152,7 +151,7 @@ export class SettingsTab extends PluginSettingTab {
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey',
+    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)

@@ -81,7 +81,7 @@
 .puffs-floating-btn:hover {
   background: var(--puffs-bg-color) !important;
   background-color: var(--puffs-bg-color) !important;
-  color: var(--text-muted);
+  color: var(--puffs-floating-button-color, var(--text-muted));
   border-color: transparent;
 }
 
@@ -314,6 +314,9 @@
   font-size: var(--puffs-font-size, 18px);
   line-height: var(--puffs-line-height, 1.8);
   letter-spacing: var(--puffs-letter-spacing, 0px);
+  text-align: justify;
+  text-align-last: left;
+  text-justify: inter-ideograph;
   user-select: text;
 }
 
