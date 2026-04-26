@@ -122,6 +122,17 @@ export class SettingsTab extends PluginSettingTab {
       'annotationExportDir',
       '例如 阅读笔记',
     );
+
+    new Setting(containerEl)
+      .setName('导出后删除对应笔记')
+      .setDesc('导出一本书的 Markdown 笔记成功后，删除该书已导出的标注与批注。')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.deleteAnnotationsAfterExport).onChange(async (v) => {
+          this.plugin.settings.deleteAnnotationsAfterExport = v;
+          await this.plugin.savePluginData();
+          this.refreshOpenReaders();
+        }),
+      );
   }
 
   private addNumberSetting(

@@ -1630,6 +1630,12 @@ export class ReaderView extends ItemView {
     }
     const targetPath = await this.findAvailableExportPath(dir, `${basename}-笔记`);
     await this.app.vault.adapter.write(targetPath, markdown);
+    if (this.plugin.settings.deleteAnnotationsAfterExport) {
+      await this.setAnnotations([]);
+      this.renderCurrentPage();
+      new Notice(`已导出 ${annos.length} 条到 ${targetPath}，并删除对应标注与批注`);
+      return;
+    }
     new Notice(`已导出 ${annos.length} 条到 ${targetPath}`);
   }
 

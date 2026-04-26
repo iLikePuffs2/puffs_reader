@@ -60,6 +60,8 @@ export interface ReaderSettings {
   annotationFirstCharColor: string;
   /** 标注/批注导出目录（vault 内相对路径，留空 = 根目录） */
   annotationExportDir: string;
+  /** 导出 Markdown 成功后是否删除当前书对应的标注/批注 */
+  deleteAnnotationsAfterExport: boolean;
 }
 
 /** 一条标注或批注 */
@@ -173,4 +175,5 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   annotationHighlightColor: '',
   annotationFirstCharColor: '255,140,0',
   annotationExportDir: '',
+  deleteAnnotationsAfterExport: true,
 };

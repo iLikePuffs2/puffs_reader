@@ -70,7 +70,8 @@ var DEFAULT_SETTINGS = {
   sidebarTitleFontSize: 16,
   annotationHighlightColor: "",
   annotationFirstCharColor: "255,140,0",
-  annotationExportDir: ""
+  annotationExportDir: "",
+  deleteAnnotationsAfterExport: true
 };
 
 // src/ReaderView.ts
@@ -1461,6 +1462,12 @@ var ReaderView = class extends import_obsidian.ItemView {
     }
     const targetPath = await this.findAvailableExportPath(dir, `${basename}-\u7B14\u8BB0`);
     await this.app.vault.adapter.write(targetPath, markdown);
+    if (this.plugin.settings.deleteAnnotationsAfterExport) {
+      await this.setAnnotations([]);
+      this.renderCurrentPage();
+      new import_obsidian.Notice(`\u5DF2\u5BFC\u51FA ${annos.length} \u6761\u5230 ${targetPath}\uFF0C\u5E76\u5220\u9664\u5BF9\u5E94\u6807\u6CE8\u4E0E\u6279\u6CE8`);
+      return;
+    }
     new import_obsidian.Notice(`\u5DF2\u5BFC\u51FA ${annos.length} \u6761\u5230 ${targetPath}`);
   }
   /** 在目录里寻找一个未占用的 md 文件名；同名时追加 `-2`、`-3` ... */
@@ -1604,6 +1611,13 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       "vault \u5185\u76F8\u5BF9\u8DEF\u5F84\uFF1B\u7559\u7A7A\u5219\u5BFC\u51FA\u5230\u6839\u76EE\u5F55\u3002\u6587\u4EF6\u540D\u56FA\u5B9A\u4E3A\u300C\u4E66\u540D.md\u300D\u3002",
       "annotationExportDir",
       "\u4F8B\u5982 \u9605\u8BFB\u7B14\u8BB0"
+    );
+    new import_obsidian2.Setting(containerEl).setName("\u5BFC\u51FA\u540E\u5220\u9664\u5BF9\u5E94\u7B14\u8BB0").setDesc("\u5BFC\u51FA\u4E00\u672C\u4E66\u7684 Markdown \u7B14\u8BB0\u6210\u529F\u540E\uFF0C\u5220\u9664\u8BE5\u4E66\u5DF2\u5BFC\u51FA\u7684\u6807\u6CE8\u4E0E\u6279\u6CE8\u3002").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.deleteAnnotationsAfterExport).onChange(async (v) => {
+        this.plugin.settings.deleteAnnotationsAfterExport = v;
+        await this.plugin.savePluginData();
+        this.refreshOpenReaders();
+      })
     );
   }
   addNumberSetting(name, desc, key, min, max, step, unit) {
