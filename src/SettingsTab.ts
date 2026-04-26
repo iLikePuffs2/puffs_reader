@@ -30,6 +30,7 @@ export class SettingsTab extends PluginSettingTab {
     this.addNumberSetting('左侧栏宽度', '目录和全文搜索侧栏宽度 (px)', 'sidebarWidth', 220, 520, 1, 'px');
     this.addNumberSetting('侧栏过渡速度', '目录和全文搜索侧栏展开/收起动画时长 (ms)', 'sidebarTransitionMs', 0, 800, 10, 'ms');
     this.addNumberSetting('目录字体大小', '左侧目录条目的字体大小 (px)', 'tocFontSize', 11, 20, 1, 'px');
+    this.addNumberSetting('侧栏书名字号', '侧边栏顶部书名的字号 (px)', 'sidebarTitleFontSize', 11, 28, 1, 'px');
 
     this.addTextSetting('字体颜色', 'RGB 格式，如 51,51,51。留空跟随主题。', 'fontColor', '例如 51,51,51');
     this.addTextSetting('书籍背景颜色', 'RGB 格式，如 233,216,188。留空跟随主题。', 'backgroundColor', '例如 233,216,188');
@@ -93,6 +94,13 @@ export class SettingsTab extends PluginSettingTab {
       '默认 Ctrl+F。支持 Ctrl/Alt/Shift 加单个按键，例如 Ctrl+Shift+F。',
       'searchHotkey',
       DEFAULT_SETTINGS.searchHotkey,
+    );
+
+    this.addTextSetting(
+      '目录面板快捷键',
+      '默认 Ctrl+B。用于弹出/收起左侧目录侧边栏。',
+      'tocPanelHotkey',
+      DEFAULT_SETTINGS.tocPanelHotkey,
     );
 
     containerEl.createEl('h3', { text: '标注与批注' });
@@ -172,7 +180,7 @@ export class SettingsTab extends PluginSettingTab {
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'annotationHighlightColor' | 'annotationFirstCharColor' | 'annotationExportDir',
+    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationFirstCharColor' | 'annotationExportDir',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)
@@ -183,7 +191,10 @@ export class SettingsTab extends PluginSettingTab {
           .setPlaceholder(placeholder)
           .setValue(this.plugin.settings[key])
           .onChange(async (v) => {
-            const fallback = key === 'searchHotkey' ? DEFAULT_SETTINGS.searchHotkey : '';
+            const fallback =
+              key === 'searchHotkey' ? DEFAULT_SETTINGS.searchHotkey :
+              key === 'tocPanelHotkey' ? DEFAULT_SETTINGS.tocPanelHotkey :
+              '';
             this.plugin.settings[key] = v.trim() || fallback;
             await this.plugin.savePluginData();
             this.refreshOpenReaders();

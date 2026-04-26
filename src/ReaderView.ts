@@ -55,9 +55,13 @@ export class ReaderView extends ItemView {
   private searchJumpPageTurns = 0;
 
   private isTocOpen = false;
-  private isSearchMode = false;
+  private sidebarMode: 'toc' | 'search' | 'notes' = 'toc';
   private isTypographyOpen = false;
   private isRenderingPage = false;
+  private notesPaneEl!: HTMLElement;
+  private tocTabsEl!: HTMLElement;
+  private tocTabBtn!: HTMLElement;
+  private notesTabBtn!: HTMLElement;
 
   private progressSaveTimer = 0;
   private searchTimer = 0;
@@ -134,7 +138,7 @@ export class ReaderView extends ItemView {
   /** 搜索快捷键重复触发时，在打开/关闭搜索面板之间切换。 */
   toggleSearchFromHotkey(): void {
     if (!this.shouldHandleSearchHotkey()) return;
-    if (this.isTocOpen && this.isSearchMode) {
+    if (this.isTocOpen && this.sidebarMode === 'search') {
       this.closeSidebar();
       this.focusReader();
       return;
@@ -183,7 +187,7 @@ export class ReaderView extends ItemView {
     this.tocSidebar = this.bodyEl.createDiv({ cls: 'puffs-toc-sidebar puffs-hidden' });
 
     const header = this.tocSidebar.createDiv({ cls: 'puffs-toc-header' });
-    this.tocTitleEl = header.createSpan({ text: '目录' });
+    this.tocTitleEl = header.createSpan({ cls: 'puffs-toc-title', text: '目录' });
     this.tocModeBtn = header.createEl('button', {
       cls: 'puffs-icon-btn puffs-toc-search-btn',
       attr: { 'aria-label': '全书搜索' },
@@ -191,7 +195,14 @@ export class ReaderView extends ItemView {
     setIcon(this.tocModeBtn, 'search');
     this.tocModeBtn.addEventListener('click', () => this.toggleSearchMode());
 
+    this.tocTabsEl = this.tocSidebar.createDiv({ cls: 'puffs-toc-tabs' });
+    this.tocTabBtn = this.tocTabsEl.createDiv({ cls: 'puffs-toc-tab', text: '目录' });
+    this.notesTabBtn = this.tocTabsEl.createDiv({ cls: 'puffs-toc-tab', text: '笔记' });
+    this.tocTabBtn.addEventListener('click', () => this.switchSidebarMode('toc'));
+    this.notesTabBtn.addEventListener('click', () => this.switchSidebarMode('notes'));
+
     this.tocListEl = this.tocSidebar.createDiv({ cls: 'puffs-toc-list' });
+    this.notesPaneEl = this.tocSidebar.createDiv({ cls: 'puffs-notes-pane puffs-hidden' });
 
     this.searchPaneEl = this.tocSidebar.createDiv({ cls: 'puffs-sidebar-search puffs-hidden' });
     const searchHeader = this.searchPaneEl.createDiv({ cls: 'puffs-search-header' });
@@ -281,6 +292,7 @@ export class ReaderView extends ItemView {
     this.paragraphs = this.processText(text);
     this.parseChapters();
     this.buildTocList();
+    this.updateSidebarTitle();
     this.applyTypography();
 
     this.currentPageStart = this.clampPosition({
@@ -814,7 +826,7 @@ export class ReaderView extends ItemView {
       const item = this.tocListEl.createDiv({ cls: 'puffs-toc-item', text: ch.title });
       item.addEventListener('click', () => {
         this.jumpToPosition({ paraIndex: ch.startParaIndex, charOffset: 0 });
-        this.setSearchMode(false);
+        this.applySidebarMode('toc');
       });
     });
   }
@@ -859,40 +871,55 @@ export class ReaderView extends ItemView {
 
   private closeSidebar(): void {
     this.isTocOpen = false;
-    this.setSearchMode(false);
     this.tocSidebar.classList.add('puffs-hidden');
+    this.readingArea.focus();
   }
 
-  private openSidebar(mode: 'toc' | 'search'): void {
+  private openSidebar(mode: 'toc' | 'search' | 'notes'): void {
     this.isTocOpen = true;
     this.tocSidebar.classList.remove('puffs-hidden');
-    this.setSearchMode(mode === 'search');
+    this.applySidebarMode(mode);
     if (mode === 'toc') {
       requestAnimationFrame(() => this.scrollTocToActiveChapter());
-    }
-    if (mode === 'search') {
+    } else if (mode === 'search') {
       this.clearSearchInput();
       requestAnimationFrame(() => {
         this.searchInput.focus();
       });
+    } else if (mode === 'notes') {
+      this.renderNotesPane();
     }
   }
 
   private toggleSearchMode(): void {
-    this.openSidebar(this.isSearchMode ? 'toc' : 'search');
+    this.openSidebar(this.sidebarMode === 'search' ? 'toc' : 'search');
   }
 
-  private setSearchMode(enabled: boolean): void {
-    this.isSearchMode = enabled;
-    this.tocTitleEl.textContent = enabled ? '全书搜索' : '目录';
-    setIcon(this.tocModeBtn, enabled ? 'list' : 'search');
-    this.tocModeBtn.setAttribute('aria-label', enabled ? '返回目录' : '全书搜索');
+  private switchSidebarMode(mode: 'toc' | 'notes'): void {
+    if (this.sidebarMode === mode) return;
+    this.openSidebar(mode);
+  }
+
+  private applySidebarMode(mode: 'toc' | 'search' | 'notes'): void {
+    this.sidebarMode = mode;
+    const inSearch = mode === 'search';
+    this.tocTitleEl.textContent = inSearch ? '全书搜索' : (this.currentFile?.basename ?? '目录');
+    setIcon(this.tocModeBtn, inSearch ? 'list' : 'search');
+    this.tocModeBtn.setAttribute('aria-label', inSearch ? '返回目录' : '全书搜索');
     this.tocModeBtn.removeAttribute('title');
-    this.tocListEl.classList.toggle('puffs-hidden', enabled);
-    this.searchPaneEl.classList.toggle('puffs-hidden', !enabled);
-      if (!enabled) {
-      this.readingArea.focus();
-    }
+
+    this.tocTabsEl.classList.toggle('puffs-hidden', inSearch);
+    this.tocTabBtn.classList.toggle('puffs-toc-tab-active', mode === 'toc');
+    this.notesTabBtn.classList.toggle('puffs-toc-tab-active', mode === 'notes');
+
+    this.tocListEl.classList.toggle('puffs-hidden', mode !== 'toc');
+    this.notesPaneEl.classList.toggle('puffs-hidden', mode !== 'notes');
+    this.searchPaneEl.classList.toggle('puffs-hidden', mode !== 'search');
+  }
+
+  private updateSidebarTitle(): void {
+    if (!this.tocTitleEl || this.sidebarMode === 'search') return;
+    this.tocTitleEl.textContent = this.currentFile?.basename ?? '目录';
   }
 
   private scrollTocToActiveChapter(): void {
@@ -1124,6 +1151,7 @@ export class ReaderView extends ItemView {
     this.rootEl.style.setProperty('--puffs-sidebar-width', `${s.sidebarWidth}px`);
     this.rootEl.style.setProperty('--puffs-sidebar-transition', `${s.sidebarTransitionMs}ms`);
     this.rootEl.style.setProperty('--puffs-toc-font-size', `${s.tocFontSize}px`);
+    this.rootEl.style.setProperty('--puffs-sidebar-title-size', `${s.sidebarTitleFontSize ?? 16}px`);
     if (floatingButtonColor) this.rootEl.style.setProperty('--puffs-floating-button-color', floatingButtonColor);
     else this.rootEl.style.removeProperty('--puffs-floating-button-color');
     this.rootEl.style.setProperty('--puffs-chapter-meta-size', `${s.chapterMetaFontSize}px`);
@@ -1253,18 +1281,25 @@ export class ReaderView extends ItemView {
         e.stopImmediatePropagation();
         return;
       }
-      if (!this.matchesSearchHotkey(e)) return;
-      if (!this.shouldHandleSearchHotkey()) return;
-      e.preventDefault();
-      e.stopPropagation();
-      this.toggleSearchFromHotkey();
+      if (this.matchesSearchHotkey(e)) {
+        if (!this.shouldHandleSearchHotkey()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleSearchFromHotkey();
+        return;
+      }
+      if (this.matchesTocPanelHotkey(e)) {
+        if (!this.shouldHandleSearchHotkey()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleToc();
+      }
     };
     document.addEventListener('keydown', this.boundGlobalKeydown, true);
     window.addEventListener('keydown', this.boundGlobalKeydown, true);
   }
 
-  private matchesSearchHotkey(e: KeyboardEvent): boolean {
-    const raw = this.plugin.settings.searchHotkey || 'Ctrl+F';
+  private matchesHotkey(e: KeyboardEvent, raw: string): boolean {
     const parts = raw.split('+').map((p) => p.trim().toLowerCase()).filter(Boolean);
     const key = parts.find((p) => !['ctrl', 'control', 'cmd', 'meta', 'alt', 'shift'].includes(p));
     if (!key) return false;
@@ -1279,10 +1314,23 @@ export class ReaderView extends ItemView {
     );
   }
 
+  private matchesSearchHotkey(e: KeyboardEvent): boolean {
+    return this.matchesHotkey(e, this.plugin.settings.searchHotkey || 'Ctrl+F');
+  }
+
+  private matchesTocPanelHotkey(e: KeyboardEvent): boolean {
+    return this.matchesHotkey(e, this.plugin.settings.tocPanelHotkey || 'Ctrl+B');
+  }
+
   private handleKeydown(e: KeyboardEvent): void {
     if (this.matchesSearchHotkey(e)) {
       e.preventDefault();
       this.toggleSearchFromHotkey();
+      return;
+    }
+    if (this.matchesTocPanelHotkey(e)) {
+      e.preventDefault();
+      this.toggleToc();
       return;
     }
     if (e.key === ' ' || e.code === 'Space') {
@@ -1383,6 +1431,51 @@ export class ReaderView extends ItemView {
     if (!this.currentFile) return;
     const merged = { ...this.getBookSettings(), annotations: next };
     await this.plugin.saveBookSettings(this.currentFile.path, merged);
+    if (this.isTocOpen && this.sidebarMode === 'notes') {
+      this.renderNotesPane();
+    }
+  }
+
+  private renderNotesPane(): void {
+    if (!this.notesPaneEl) return;
+    this.notesPaneEl.empty();
+    const annos = [...this.getAnnotations()]
+      .map((a, idx) => ({ a, idx }))
+      .sort((x, y) => x.a.paraIndex - y.a.paraIndex || x.a.startOffset - y.a.startOffset);
+    if (annos.length === 0) {
+      this.notesPaneEl.createDiv({ cls: 'puffs-search-empty', text: '当前书没有标注或批注' });
+      return;
+    }
+
+    annos.forEach(({ a, idx }) => {
+      const card = this.notesPaneEl.createDiv({ cls: 'puffs-search-card puffs-note-card' });
+      const head = card.createDiv({ cls: 'puffs-note-card-head' });
+      const chapter = this.getActiveChapterIndex(a.paraIndex);
+      head.createDiv({
+        cls: 'puffs-search-card-title puffs-note-card-title',
+        text: chapter >= 0 ? this.chapters[chapter].title : `第 ${a.paraIndex + 1} 段`,
+      });
+      const closeBtn = head.createEl('button', {
+        cls: 'puffs-note-card-close',
+        text: '×',
+        attr: { 'aria-label': '删除' },
+      });
+      closeBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const next = this.getAnnotations().filter((_, i) => i !== idx);
+        await this.setAnnotations(next);
+        this.renderCurrentPage();
+      });
+
+      if (a.note) {
+        card.createDiv({ cls: 'puffs-note-card-note', text: `批注：${a.note}` });
+      }
+      card.createDiv({ cls: 'puffs-search-card-preview', text: a.text });
+
+      card.addEventListener('click', () => {
+        this.jumpToPosition({ paraIndex: a.paraIndex, charOffset: a.startOffset });
+      });
+    });
   }
 
   /**
@@ -1566,9 +1659,19 @@ class AnnotationInputModal extends Modal {
   }
 
   onOpen(): void {
-    const { contentEl } = this;
+    const { contentEl, modalEl } = this;
     contentEl.empty();
-    contentEl.createEl('h3', { text: '添加批注' });
+    modalEl.addClass('puffs-anno-modal');
+
+    const header = contentEl.createDiv({ cls: 'puffs-anno-modal-header' });
+    header.createEl('h3', { cls: 'puffs-anno-modal-title', text: '添加批注' });
+    const closeBtn = header.createEl('button', {
+      cls: 'puffs-anno-modal-close',
+      text: '×',
+      attr: { 'aria-label': '关闭' },
+    });
+    closeBtn.addEventListener('click', () => this.close());
+
     const preview = contentEl.createDiv({ cls: 'puffs-anno-modal-preview' });
     preview.textContent = this.defaultText;
     const input = contentEl.createEl('input', {
@@ -1585,6 +1688,9 @@ class AnnotationInputModal extends Modal {
       } else if (e.key === 'Escape') {
         e.preventDefault();
         this.close();
+      } else if ((e.key === ' ' || e.code === 'Space') && input.value.length === 0) {
+        // 长按空格唤出弹窗时，避免 keyup 在输入框里塞入空格作为首字符。
+        e.preventDefault();
       }
     });
   }
