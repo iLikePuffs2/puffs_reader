@@ -507,19 +507,30 @@ var ReaderView = class extends import_obsidian.ItemView {
    * 没有任何装饰时返回 null，让调用方走 textContent 快路径。
    */
   buildDecoratedHTML(text, paraIndex, charOffset) {
+    var _a, _b;
     const end = charOffset + text.length;
-    const annos = this.getAnnotations().map((a, idx) => ({ a, idx })).filter(({ a }) => a.paraIndex === paraIndex && a.startOffset < end && a.startOffset + a.length > charOffset);
+    const annos = this.getAnnotations().map((a, idx) => ({ a, idx, segment: this.getAnnotationSegment(a, paraIndex) })).filter(({ segment }) => segment !== null && segment.startOffset < end && segment.endOffset > charOffset);
     const searches = this.searchResults.filter((m) => m.paraIndex === paraIndex && m.startOffset < end && m.startOffset + m.length > charOffset);
     if (annos.length === 0 && searches.length === 0) return null;
     const tokens = [];
-    for (const { a, idx } of annos) {
-      const localStart = Math.max(0, a.startOffset - charOffset);
-      const localEnd = Math.min(text.length, a.startOffset + a.length - charOffset);
+    const leadingPlainEnd = charOffset === 0 ? (_b = (_a = text.match(/^[\s\u3000]+/)) == null ? void 0 : _a[0].length) != null ? _b : 0 : 0;
+    for (const { a, idx, segment } of annos) {
+      if (!segment) continue;
+      const localStart = Math.max(leadingPlainEnd, segment.startOffset - charOffset);
+      const localEnd = Math.min(text.length, segment.endOffset - charOffset);
       if (localEnd <= localStart) continue;
-      tokens.push({ start: localStart, end: localEnd, kind: "anno", annoIdx: idx, hasNote: !!a.note });
+      const firstDecoratedOffset = this.getAnnotationFirstDecoratedOffset(a);
+      tokens.push({
+        start: localStart,
+        end: localEnd,
+        kind: "anno",
+        annoIdx: idx,
+        hasNote: !!a.note,
+        hasNoteFirstChar: !!a.note && paraIndex === a.paraIndex && charOffset + localStart === firstDecoratedOffset
+      });
     }
     for (const m of searches) {
-      const localStart = Math.max(0, m.startOffset - charOffset);
+      const localStart = Math.max(leadingPlainEnd, m.startOffset - charOffset);
       const localEnd = Math.min(text.length, m.startOffset + m.length - charOffset);
       if (localEnd <= localStart) continue;
       tokens.push({ start: localStart, end: localEnd, kind: "search" });
@@ -536,7 +547,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       } else {
         const cls = t.hasNote ? "puffs-annotation puffs-has-note" : "puffs-annotation";
         const idxAttr = t.annoIdx !== void 0 ? ` data-anno-idx="${t.annoIdx}"` : "";
-        if (t.hasNote && inner.length > 0) {
+        if (t.hasNoteFirstChar && inner.length > 0) {
           const first = this.escapeHTML(inner.slice(0, 1));
           const rest = this.escapeHTML(inner.slice(1));
           result += `<span class="${cls}"${idxAttr}><span class="puffs-anno-first">${first}</span>${rest}</span>`;
@@ -1312,17 +1323,47 @@ var ReaderView = class extends import_obsidian.ItemView {
       if (a.note) {
         card.createDiv({ cls: "puffs-note-card-note", text: `\u6279\u6CE8\uFF1A${a.note}` });
       }
-      card.createDiv({ cls: "puffs-search-card-preview", text: a.text });
+      const preview = card.createDiv({ cls: "puffs-search-card-preview puffs-note-card-preview" });
+      this.renderAnnotationPreview(preview, a.text);
       card.addEventListener("click", () => {
         this.jumpToPosition({ paraIndex: a.paraIndex, charOffset: a.startOffset });
       });
     });
   }
+  getAnnotationEnd(annotation) {
+    if (Number.isFinite(annotation.endParaIndex) && Number.isFinite(annotation.endOffset) && annotation.endParaIndex !== void 0 && annotation.endOffset !== void 0) {
+      return {
+        paraIndex: annotation.endParaIndex,
+        charOffset: annotation.endOffset
+      };
+    }
+    return {
+      paraIndex: annotation.paraIndex,
+      charOffset: annotation.startOffset + annotation.length
+    };
+  }
+  getAnnotationFirstDecoratedOffset(annotation) {
+    var _a, _b, _c;
+    const paragraph = (_a = this.paragraphs[annotation.paraIndex]) != null ? _a : "";
+    const leadingLength = (_c = (_b = paragraph.match(/^[\s\u3000]+/)) == null ? void 0 : _b[0].length) != null ? _c : 0;
+    return Math.max(annotation.startOffset, leadingLength);
+  }
+  getAnnotationSegment(annotation, paraIndex) {
+    var _a, _b;
+    const end = this.getAnnotationEnd(annotation);
+    if (paraIndex < annotation.paraIndex || paraIndex > end.paraIndex) return null;
+    const paragraphLength = (_b = (_a = this.paragraphs[paraIndex]) == null ? void 0 : _a.length) != null ? _b : 0;
+    const rawStart = paraIndex === annotation.paraIndex ? annotation.startOffset : 0;
+    const rawEnd = paraIndex === end.paraIndex ? end.charOffset : paragraphLength;
+    const startOffset = Math.max(0, Math.min(rawStart, paragraphLength));
+    const endOffset = Math.max(0, Math.min(rawEnd, paragraphLength));
+    if (endOffset <= startOffset) return null;
+    return { startOffset, endOffset };
+  }
   /**
-   * 把当前选区解析为段内字符位置。仅支持单段落选区，跨段落或不在阅读区内时返回 null。
+   * 把当前选区解析为原文段落坐标。支持同一页内的跨段落选区。
    */
   captureSelection() {
-    var _a;
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
     const range = selection.getRangeAt(0);
@@ -1332,24 +1373,46 @@ var ReaderView = class extends import_obsidian.ItemView {
     const startPara = this.findParaElement(range.startContainer);
     const endPara = this.findParaElement(range.endContainer);
     if (!startPara || !endPara) return null;
-    if (startPara !== endPara) {
-      console.warn("[puffs-reader] \u6807\u6CE8\u6682\u4E0D\u652F\u6301\u8DE8\u6BB5\u843D\u9009\u62E9");
-      return null;
-    }
     const paraIndex = Number(startPara.dataset.paraIndex);
-    const baseOffset = Number(startPara.dataset.charOffset);
-    if (!Number.isFinite(paraIndex) || !Number.isFinite(baseOffset)) return null;
-    const localStart = this.nodeOffsetToTextOffset(startPara, range.startContainer, range.startOffset);
-    const localEnd = this.nodeOffsetToTextOffset(startPara, range.endContainer, range.endOffset);
-    const lo = Math.min(localStart, localEnd);
-    const hi = Math.max(localStart, localEnd);
-    if (hi <= lo) return null;
-    const fullText = (_a = this.paragraphs[paraIndex]) != null ? _a : "";
-    const startOffset = baseOffset + lo;
-    const length = hi - lo;
-    const text = fullText.slice(startOffset, startOffset + length);
+    const endParaIndex = Number(endPara.dataset.paraIndex);
+    const startBaseOffset = Number(startPara.dataset.charOffset);
+    const endBaseOffset = Number(endPara.dataset.charOffset);
+    if (!Number.isFinite(paraIndex) || !Number.isFinite(endParaIndex) || !Number.isFinite(startBaseOffset) || !Number.isFinite(endBaseOffset)) return null;
+    const startOffset = startBaseOffset + this.nodeOffsetToTextOffset(startPara, range.startContainer, range.startOffset);
+    const endOffset = endBaseOffset + this.nodeOffsetToTextOffset(endPara, range.endContainer, range.endOffset);
+    const startPos = this.clampAnnotationPosition(paraIndex, startOffset);
+    const endPos = this.clampAnnotationPosition(endParaIndex, endOffset);
+    if (this.comparePositions(endPos, startPos) <= 0) return null;
+    const text = this.buildAnnotationText(startPos, endPos);
     if (!text) return null;
-    return { paraIndex, startOffset, length, text };
+    return {
+      paraIndex: startPos.paraIndex,
+      startOffset: startPos.charOffset,
+      endParaIndex: endPos.paraIndex,
+      endOffset: endPos.charOffset,
+      length: text.length,
+      text
+    };
+  }
+  buildAnnotationText(start, end) {
+    var _a;
+    const parts = [];
+    for (let pi = start.paraIndex; pi <= end.paraIndex && pi < this.paragraphs.length; pi++) {
+      const paragraph = (_a = this.paragraphs[pi]) != null ? _a : "";
+      const begin = pi === start.paraIndex ? start.charOffset : 0;
+      const finish = pi === end.paraIndex ? end.charOffset : paragraph.length;
+      parts.push(paragraph.slice(begin, finish));
+    }
+    return parts.join("\n");
+  }
+  clampAnnotationPosition(paraIndex, charOffset) {
+    var _a, _b;
+    const nextParaIndex = Math.max(0, Math.min(paraIndex, Math.max(0, this.paragraphs.length - 1)));
+    const paragraphLength = (_b = (_a = this.paragraphs[nextParaIndex]) == null ? void 0 : _a.length) != null ? _b : 0;
+    return {
+      paraIndex: nextParaIndex,
+      charOffset: Math.max(0, Math.min(charOffset, paragraphLength))
+    };
   }
   findParaElement(node) {
     let cur = node;
@@ -1396,6 +1459,8 @@ var ReaderView = class extends import_obsidian.ItemView {
       paraIndex: sel.paraIndex,
       startOffset: sel.startOffset,
       length: sel.length,
+      endParaIndex: sel.endParaIndex,
+      endOffset: sel.endOffset,
       text: sel.text,
       note: note && note.trim() ? note.trim() : void 0,
       createdAt: Date.now()
@@ -1449,7 +1514,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     const blocks = annos.map((a) => {
       const lines = [];
       if (a.note) lines.push(`\u6279\u6CE8\uFF1A${a.note}`);
-      lines.push(a.text);
+      lines.push(this.formatAnnotationText(a.text));
       return lines.join("\n");
     });
     const markdown = blocks.join("\n\n") + "\n";
@@ -1469,6 +1534,20 @@ var ReaderView = class extends import_obsidian.ItemView {
       return;
     }
     new import_obsidian.Notice(`\u5DF2\u5BFC\u51FA ${annos.length} \u6761\u5230 ${targetPath}`);
+  }
+  renderAnnotationPreview(container, text) {
+    container.empty();
+    const paragraphs = this.formatAnnotationText(text).split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    if (paragraphs.length === 0) {
+      container.textContent = "";
+      return;
+    }
+    for (const paragraph of paragraphs) {
+      container.createDiv({ cls: "puffs-note-card-paragraph", text: paragraph });
+    }
+  }
+  formatAnnotationText(text) {
+    return text.split(/\r?\n/).map((line) => line.replace(/^[\s\u3000]+/, "")).join("\n");
   }
   /** 在目录里寻找一个未占用的 md 文件名；同名时追加 `-2`、`-3` ... */
   async findAvailableExportPath(dir, baseName) {

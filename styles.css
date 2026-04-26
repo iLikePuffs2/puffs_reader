@@ -332,6 +332,19 @@
   word-break: break-all;
 }
 
+.puffs-note-card-preview {
+  white-space: normal;
+}
+
+.puffs-note-card-paragraph {
+  margin: 0;
+  text-indent: 2em;
+}
+
+.puffs-note-card-paragraph + .puffs-note-card-paragraph {
+  margin-top: 0.55em;
+}
+
 .puffs-search-card-preview mark {
   padding: 0 2px;
   border-radius: 2px;

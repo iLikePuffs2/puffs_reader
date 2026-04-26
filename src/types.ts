@@ -72,6 +72,10 @@ export interface Annotation {
   startOffset: number;
   /** 选中文本长度（字符数） */
   length: number;
+  /** 跨段标注的结束段落索引；旧数据或单段标注为空 */
+  endParaIndex?: number;
+  /** 跨段标注的结束段内字符偏移；旧数据或单段标注为空 */
+  endOffset?: number;
   /** 选中的原文（冗余存储，便于导出且抗源文件变化） */
   text: string;
   /** 批注文字；undefined 表示纯标注 */

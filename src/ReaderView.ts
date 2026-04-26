@@ -9,6 +9,15 @@ interface ReaderPosition {
   charOffset: number;
 }
 
+interface AnnotationSelection {
+  paraIndex: number;
+  startOffset: number;
+  endParaIndex: number;
+  endOffset: number;
+  length: number;
+  text: string;
+}
+
 /**
  * Puffs Reader 阅读器核心视图。
  *
@@ -70,7 +79,7 @@ export class ReaderView extends ItemView {
 
   private spaceHoldTimer = 0;
   private spaceHoldFired = false;
-  private spacePressedSelection: { paraIndex: number; startOffset: number; length: number; text: string } | null = null;
+  private spacePressedSelection: AnnotationSelection | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: PuffsReaderPlugin) {
     super(leaf);
@@ -556,23 +565,40 @@ export class ReaderView extends ItemView {
   private buildDecoratedHTML(text: string, paraIndex: number, charOffset: number): string | null {
     const end = charOffset + text.length;
     const annos = this.getAnnotations()
-      .map((a, idx) => ({ a, idx }))
-      .filter(({ a }) => a.paraIndex === paraIndex && a.startOffset < end && a.startOffset + a.length > charOffset);
+      .map((a, idx) => ({ a, idx, segment: this.getAnnotationSegment(a, paraIndex) }))
+      .filter(({ segment }) => segment !== null && segment.startOffset < end && segment.endOffset > charOffset);
     const searches = this.searchResults
       .filter((m) => m.paraIndex === paraIndex && m.startOffset < end && m.startOffset + m.length > charOffset);
 
     if (annos.length === 0 && searches.length === 0) return null;
 
-    type Token = { start: number; end: number; kind: 'anno' | 'search'; annoIdx?: number; hasNote?: boolean };
+    type Token = {
+      start: number;
+      end: number;
+      kind: 'anno' | 'search';
+      annoIdx?: number;
+      hasNote?: boolean;
+      hasNoteFirstChar?: boolean;
+    };
     const tokens: Token[] = [];
-    for (const { a, idx } of annos) {
-      const localStart = Math.max(0, a.startOffset - charOffset);
-      const localEnd = Math.min(text.length, a.startOffset + a.length - charOffset);
+    const leadingPlainEnd = charOffset === 0 ? (text.match(/^[\s\u3000]+/)?.[0].length ?? 0) : 0;
+    for (const { a, idx, segment } of annos) {
+      if (!segment) continue;
+      const localStart = Math.max(leadingPlainEnd, segment.startOffset - charOffset);
+      const localEnd = Math.min(text.length, segment.endOffset - charOffset);
       if (localEnd <= localStart) continue;
-      tokens.push({ start: localStart, end: localEnd, kind: 'anno', annoIdx: idx, hasNote: !!a.note });
+      const firstDecoratedOffset = this.getAnnotationFirstDecoratedOffset(a);
+      tokens.push({
+        start: localStart,
+        end: localEnd,
+        kind: 'anno',
+        annoIdx: idx,
+        hasNote: !!a.note,
+        hasNoteFirstChar: !!a.note && paraIndex === a.paraIndex && charOffset + localStart === firstDecoratedOffset,
+      });
     }
     for (const m of searches) {
-      const localStart = Math.max(0, m.startOffset - charOffset);
+      const localStart = Math.max(leadingPlainEnd, m.startOffset - charOffset);
       const localEnd = Math.min(text.length, m.startOffset + m.length - charOffset);
       if (localEnd <= localStart) continue;
       tokens.push({ start: localStart, end: localEnd, kind: 'search' });
@@ -590,7 +616,7 @@ export class ReaderView extends ItemView {
       } else {
         const cls = t.hasNote ? 'puffs-annotation puffs-has-note' : 'puffs-annotation';
         const idxAttr = t.annoIdx !== undefined ? ` data-anno-idx="${t.annoIdx}"` : '';
-        if (t.hasNote && inner.length > 0) {
+        if (t.hasNoteFirstChar && inner.length > 0) {
           const first = this.escapeHTML(inner.slice(0, 1));
           const rest = this.escapeHTML(inner.slice(1));
           result += `<span class="${cls}"${idxAttr}><span class="puffs-anno-first">${first}</span>${rest}</span>`;
@@ -1470,7 +1496,8 @@ export class ReaderView extends ItemView {
       if (a.note) {
         card.createDiv({ cls: 'puffs-note-card-note', text: `批注：${a.note}` });
       }
-      card.createDiv({ cls: 'puffs-search-card-preview', text: a.text });
+      const preview = card.createDiv({ cls: 'puffs-search-card-preview puffs-note-card-preview' });
+      this.renderAnnotationPreview(preview, a.text);
 
       card.addEventListener('click', () => {
         this.jumpToPosition({ paraIndex: a.paraIndex, charOffset: a.startOffset });
@@ -1478,10 +1505,50 @@ export class ReaderView extends ItemView {
     });
   }
 
+  private getAnnotationEnd(annotation: Annotation): ReaderPosition {
+    if (
+      Number.isFinite(annotation.endParaIndex) &&
+      Number.isFinite(annotation.endOffset) &&
+      annotation.endParaIndex !== undefined &&
+      annotation.endOffset !== undefined
+    ) {
+      return {
+        paraIndex: annotation.endParaIndex,
+        charOffset: annotation.endOffset,
+      };
+    }
+    return {
+      paraIndex: annotation.paraIndex,
+      charOffset: annotation.startOffset + annotation.length,
+    };
+  }
+
+  private getAnnotationFirstDecoratedOffset(annotation: Annotation): number {
+    const paragraph = this.paragraphs[annotation.paraIndex] ?? '';
+    const leadingLength = paragraph.match(/^[\s\u3000]+/)?.[0].length ?? 0;
+    return Math.max(annotation.startOffset, leadingLength);
+  }
+
+  private getAnnotationSegment(
+    annotation: Annotation,
+    paraIndex: number,
+  ): { startOffset: number; endOffset: number } | null {
+    const end = this.getAnnotationEnd(annotation);
+    if (paraIndex < annotation.paraIndex || paraIndex > end.paraIndex) return null;
+
+    const paragraphLength = this.paragraphs[paraIndex]?.length ?? 0;
+    const rawStart = paraIndex === annotation.paraIndex ? annotation.startOffset : 0;
+    const rawEnd = paraIndex === end.paraIndex ? end.charOffset : paragraphLength;
+    const startOffset = Math.max(0, Math.min(rawStart, paragraphLength));
+    const endOffset = Math.max(0, Math.min(rawEnd, paragraphLength));
+    if (endOffset <= startOffset) return null;
+    return { startOffset, endOffset };
+  }
+
   /**
-   * 把当前选区解析为段内字符位置。仅支持单段落选区，跨段落或不在阅读区内时返回 null。
+   * 把当前选区解析为原文段落坐标。支持同一页内的跨段落选区。
    */
-  private captureSelection(): { paraIndex: number; startOffset: number; length: number; text: string } | null {
+  private captureSelection(): AnnotationSelection | null {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
     const range = selection.getRangeAt(0);
@@ -1491,25 +1558,54 @@ export class ReaderView extends ItemView {
     const startPara = this.findParaElement(range.startContainer);
     const endPara = this.findParaElement(range.endContainer);
     if (!startPara || !endPara) return null;
-    if (startPara !== endPara) {
-      console.warn('[puffs-reader] 标注暂不支持跨段落选择');
-      return null;
-    }
-    const paraIndex = Number(startPara.dataset.paraIndex);
-    const baseOffset = Number(startPara.dataset.charOffset);
-    if (!Number.isFinite(paraIndex) || !Number.isFinite(baseOffset)) return null;
 
-    const localStart = this.nodeOffsetToTextOffset(startPara, range.startContainer, range.startOffset);
-    const localEnd = this.nodeOffsetToTextOffset(startPara, range.endContainer, range.endOffset);
-    const lo = Math.min(localStart, localEnd);
-    const hi = Math.max(localStart, localEnd);
-    if (hi <= lo) return null;
-    const fullText = this.paragraphs[paraIndex] ?? '';
-    const startOffset = baseOffset + lo;
-    const length = hi - lo;
-    const text = fullText.slice(startOffset, startOffset + length);
+    const paraIndex = Number(startPara.dataset.paraIndex);
+    const endParaIndex = Number(endPara.dataset.paraIndex);
+    const startBaseOffset = Number(startPara.dataset.charOffset);
+    const endBaseOffset = Number(endPara.dataset.charOffset);
+    if (
+      !Number.isFinite(paraIndex) ||
+      !Number.isFinite(endParaIndex) ||
+      !Number.isFinite(startBaseOffset) ||
+      !Number.isFinite(endBaseOffset)
+    ) return null;
+
+    const startOffset = startBaseOffset + this.nodeOffsetToTextOffset(startPara, range.startContainer, range.startOffset);
+    const endOffset = endBaseOffset + this.nodeOffsetToTextOffset(endPara, range.endContainer, range.endOffset);
+    const startPos = this.clampAnnotationPosition(paraIndex, startOffset);
+    const endPos = this.clampAnnotationPosition(endParaIndex, endOffset);
+    if (this.comparePositions(endPos, startPos) <= 0) return null;
+
+    const text = this.buildAnnotationText(startPos, endPos);
     if (!text) return null;
-    return { paraIndex, startOffset, length, text };
+    return {
+      paraIndex: startPos.paraIndex,
+      startOffset: startPos.charOffset,
+      endParaIndex: endPos.paraIndex,
+      endOffset: endPos.charOffset,
+      length: text.length,
+      text,
+    };
+  }
+
+  private buildAnnotationText(start: ReaderPosition, end: ReaderPosition): string {
+    const parts: string[] = [];
+    for (let pi = start.paraIndex; pi <= end.paraIndex && pi < this.paragraphs.length; pi++) {
+      const paragraph = this.paragraphs[pi] ?? '';
+      const begin = pi === start.paraIndex ? start.charOffset : 0;
+      const finish = pi === end.paraIndex ? end.charOffset : paragraph.length;
+      parts.push(paragraph.slice(begin, finish));
+    }
+    return parts.join('\n');
+  }
+
+  private clampAnnotationPosition(paraIndex: number, charOffset: number): ReaderPosition {
+    const nextParaIndex = Math.max(0, Math.min(paraIndex, Math.max(0, this.paragraphs.length - 1)));
+    const paragraphLength = this.paragraphs[nextParaIndex]?.length ?? 0;
+    return {
+      paraIndex: nextParaIndex,
+      charOffset: Math.max(0, Math.min(charOffset, paragraphLength)),
+    };
   }
 
   private findParaElement(node: Node | null): HTMLElement | null {
@@ -1552,7 +1648,7 @@ export class ReaderView extends ItemView {
   }
 
   private async addAnnotation(
-    sel: { paraIndex: number; startOffset: number; length: number; text: string },
+    sel: AnnotationSelection,
     note: string | undefined,
   ): Promise<void> {
     const next = [...this.getAnnotations()];
@@ -1560,6 +1656,8 @@ export class ReaderView extends ItemView {
       paraIndex: sel.paraIndex,
       startOffset: sel.startOffset,
       length: sel.length,
+      endParaIndex: sel.endParaIndex,
+      endOffset: sel.endOffset,
       text: sel.text,
       note: note && note.trim() ? note.trim() : undefined,
       createdAt: Date.now(),
@@ -1569,7 +1667,7 @@ export class ReaderView extends ItemView {
     this.renderCurrentPage();
   }
 
-  private openAnnotationModal(sel: { paraIndex: number; startOffset: number; length: number; text: string }): void {
+  private openAnnotationModal(sel: AnnotationSelection): void {
     new AnnotationInputModal(this.app, sel.text, (note) => {
       this.addAnnotation(sel, note);
     }).open();
@@ -1615,7 +1713,7 @@ export class ReaderView extends ItemView {
     const blocks = annos.map((a) => {
       const lines: string[] = [];
       if (a.note) lines.push(`批注：${a.note}`);
-      lines.push(a.text);
+      lines.push(this.formatAnnotationText(a.text));
       return lines.join('\n');
     });
     const markdown = blocks.join('\n\n') + '\n';
@@ -1637,6 +1735,30 @@ export class ReaderView extends ItemView {
       return;
     }
     new Notice(`已导出 ${annos.length} 条到 ${targetPath}`);
+  }
+
+  private renderAnnotationPreview(container: HTMLElement, text: string): void {
+    container.empty();
+    const paragraphs = this.formatAnnotationText(text)
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (paragraphs.length === 0) {
+      container.textContent = '';
+      return;
+    }
+
+    for (const paragraph of paragraphs) {
+      container.createDiv({ cls: 'puffs-note-card-paragraph', text: paragraph });
+    }
+  }
+
+  private formatAnnotationText(text: string): string {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^[\s\u3000]+/, ''))
+      .join('\n');
   }
 
   /** 在目录里寻找一个未占用的 md 文件名；同名时追加 `-2`、`-3` ... */
