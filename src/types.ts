@@ -50,6 +50,10 @@ export interface ReaderSettings {
   defaultEncoding: string;
   /** 全文搜索快捷键 */
   searchHotkey: string;
+  /** 目录侧边栏切换快捷键 */
+  tocPanelHotkey: string;
+  /** 侧边栏顶部书名字号 (px) */
+  sidebarTitleFontSize: number;
   /** 标注高亮背景色 (RGB)，空 = 跟随浏览器选区色 */
   annotationHighlightColor: string;
   /** 批注首字颜色 (RGB) */
@@ -164,6 +168,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: 'utf-8',
   searchHotkey: 'Ctrl+F',
+  tocPanelHotkey: 'Ctrl+B',
+  sidebarTitleFontSize: 16,
   annotationHighlightColor: '',
   annotationFirstCharColor: '255,140,0',
   annotationExportDir: '',

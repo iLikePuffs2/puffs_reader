@@ -66,6 +66,8 @@ var DEFAULT_SETTINGS = {
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: "utf-8",
   searchHotkey: "Ctrl+F",
+  tocPanelHotkey: "Ctrl+B",
+  sidebarTitleFontSize: 16,
   annotationHighlightColor: "",
   annotationFirstCharColor: "255,140,0",
   annotationExportDir: ""
@@ -90,7 +92,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.searchJumpBackPos = null;
     this.searchJumpPageTurns = 0;
     this.isTocOpen = false;
-    this.isSearchMode = false;
+    this.sidebarMode = "toc";
     this.isTypographyOpen = false;
     this.isRenderingPage = false;
     this.progressSaveTimer = 0;
@@ -157,7 +159,7 @@ var ReaderView = class extends import_obsidian.ItemView {
   /** 搜索快捷键重复触发时，在打开/关闭搜索面板之间切换。 */
   toggleSearchFromHotkey() {
     if (!this.shouldHandleSearchHotkey()) return;
-    if (this.isTocOpen && this.isSearchMode) {
+    if (this.isTocOpen && this.sidebarMode === "search") {
       this.closeSidebar();
       this.focusReader();
       return;
@@ -198,14 +200,20 @@ var ReaderView = class extends import_obsidian.ItemView {
   buildTocSidebar() {
     this.tocSidebar = this.bodyEl.createDiv({ cls: "puffs-toc-sidebar puffs-hidden" });
     const header = this.tocSidebar.createDiv({ cls: "puffs-toc-header" });
-    this.tocTitleEl = header.createSpan({ text: "\u76EE\u5F55" });
+    this.tocTitleEl = header.createSpan({ cls: "puffs-toc-title", text: "\u76EE\u5F55" });
     this.tocModeBtn = header.createEl("button", {
       cls: "puffs-icon-btn puffs-toc-search-btn",
       attr: { "aria-label": "\u5168\u4E66\u641C\u7D22" }
     });
     (0, import_obsidian.setIcon)(this.tocModeBtn, "search");
     this.tocModeBtn.addEventListener("click", () => this.toggleSearchMode());
+    this.tocTabsEl = this.tocSidebar.createDiv({ cls: "puffs-toc-tabs" });
+    this.tocTabBtn = this.tocTabsEl.createDiv({ cls: "puffs-toc-tab", text: "\u76EE\u5F55" });
+    this.notesTabBtn = this.tocTabsEl.createDiv({ cls: "puffs-toc-tab", text: "\u7B14\u8BB0" });
+    this.tocTabBtn.addEventListener("click", () => this.switchSidebarMode("toc"));
+    this.notesTabBtn.addEventListener("click", () => this.switchSidebarMode("notes"));
     this.tocListEl = this.tocSidebar.createDiv({ cls: "puffs-toc-list" });
+    this.notesPaneEl = this.tocSidebar.createDiv({ cls: "puffs-notes-pane puffs-hidden" });
     this.searchPaneEl = this.tocSidebar.createDiv({ cls: "puffs-sidebar-search puffs-hidden" });
     const searchHeader = this.searchPaneEl.createDiv({ cls: "puffs-search-header" });
     this.searchInput = searchHeader.createEl("input", {
@@ -282,6 +290,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.paragraphs = this.processText(text);
     this.parseChapters();
     this.buildTocList();
+    this.updateSidebarTitle();
     this.applyTypography();
     this.currentPageStart = this.clampPosition({
       paraIndex: (_b = saved == null ? void 0 : saved.paragraphIndex) != null ? _b : 0,
@@ -738,7 +747,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       const item = this.tocListEl.createDiv({ cls: "puffs-toc-item", text: ch.title });
       item.addEventListener("click", () => {
         this.jumpToPosition({ paraIndex: ch.startParaIndex, charOffset: 0 });
-        this.setSearchMode(false);
+        this.applySidebarMode("toc");
       });
     });
   }
@@ -778,37 +787,50 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   closeSidebar() {
     this.isTocOpen = false;
-    this.setSearchMode(false);
     this.tocSidebar.classList.add("puffs-hidden");
+    this.readingArea.focus();
   }
   openSidebar(mode) {
     this.isTocOpen = true;
     this.tocSidebar.classList.remove("puffs-hidden");
-    this.setSearchMode(mode === "search");
+    this.applySidebarMode(mode);
     if (mode === "toc") {
       requestAnimationFrame(() => this.scrollTocToActiveChapter());
-    }
-    if (mode === "search") {
+    } else if (mode === "search") {
       this.clearSearchInput();
       requestAnimationFrame(() => {
         this.searchInput.focus();
       });
+    } else if (mode === "notes") {
+      this.renderNotesPane();
     }
   }
   toggleSearchMode() {
-    this.openSidebar(this.isSearchMode ? "toc" : "search");
+    this.openSidebar(this.sidebarMode === "search" ? "toc" : "search");
   }
-  setSearchMode(enabled) {
-    this.isSearchMode = enabled;
-    this.tocTitleEl.textContent = enabled ? "\u5168\u4E66\u641C\u7D22" : "\u76EE\u5F55";
-    (0, import_obsidian.setIcon)(this.tocModeBtn, enabled ? "list" : "search");
-    this.tocModeBtn.setAttribute("aria-label", enabled ? "\u8FD4\u56DE\u76EE\u5F55" : "\u5168\u4E66\u641C\u7D22");
+  switchSidebarMode(mode) {
+    if (this.sidebarMode === mode) return;
+    this.openSidebar(mode);
+  }
+  applySidebarMode(mode) {
+    var _a, _b;
+    this.sidebarMode = mode;
+    const inSearch = mode === "search";
+    this.tocTitleEl.textContent = inSearch ? "\u5168\u4E66\u641C\u7D22" : (_b = (_a = this.currentFile) == null ? void 0 : _a.basename) != null ? _b : "\u76EE\u5F55";
+    (0, import_obsidian.setIcon)(this.tocModeBtn, inSearch ? "list" : "search");
+    this.tocModeBtn.setAttribute("aria-label", inSearch ? "\u8FD4\u56DE\u76EE\u5F55" : "\u5168\u4E66\u641C\u7D22");
     this.tocModeBtn.removeAttribute("title");
-    this.tocListEl.classList.toggle("puffs-hidden", enabled);
-    this.searchPaneEl.classList.toggle("puffs-hidden", !enabled);
-    if (!enabled) {
-      this.readingArea.focus();
-    }
+    this.tocTabsEl.classList.toggle("puffs-hidden", inSearch);
+    this.tocTabBtn.classList.toggle("puffs-toc-tab-active", mode === "toc");
+    this.notesTabBtn.classList.toggle("puffs-toc-tab-active", mode === "notes");
+    this.tocListEl.classList.toggle("puffs-hidden", mode !== "toc");
+    this.notesPaneEl.classList.toggle("puffs-hidden", mode !== "notes");
+    this.searchPaneEl.classList.toggle("puffs-hidden", mode !== "search");
+  }
+  updateSidebarTitle() {
+    var _a, _b;
+    if (!this.tocTitleEl || this.sidebarMode === "search") return;
+    this.tocTitleEl.textContent = (_b = (_a = this.currentFile) == null ? void 0 : _a.basename) != null ? _b : "\u76EE\u5F55";
   }
   scrollTocToActiveChapter() {
     const activeChapter = this.getActiveChapterIndex(this.currentPageStart.paraIndex);
@@ -985,6 +1007,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     input.addEventListener("change", () => onChange(input.value.trim()));
   }
   applyTypography() {
+    var _a;
     if (!this.rootEl || !this.contentContainer) return;
     const s = this.plugin.settings;
     const rgbBg = s.backgroundColor ? `rgb(${s.backgroundColor})` : "";
@@ -1005,6 +1028,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.rootEl.style.setProperty("--puffs-sidebar-width", `${s.sidebarWidth}px`);
     this.rootEl.style.setProperty("--puffs-sidebar-transition", `${s.sidebarTransitionMs}ms`);
     this.rootEl.style.setProperty("--puffs-toc-font-size", `${s.tocFontSize}px`);
+    this.rootEl.style.setProperty("--puffs-sidebar-title-size", `${(_a = s.sidebarTitleFontSize) != null ? _a : 16}px`);
     if (floatingButtonColor) this.rootEl.style.setProperty("--puffs-floating-button-color", floatingButtonColor);
     else this.rootEl.style.removeProperty("--puffs-floating-button-color");
     this.rootEl.style.setProperty("--puffs-chapter-meta-size", `${s.chapterMetaFontSize}px`);
@@ -1122,17 +1146,24 @@ var ReaderView = class extends import_obsidian.ItemView {
         e.stopImmediatePropagation();
         return;
       }
-      if (!this.matchesSearchHotkey(e)) return;
-      if (!this.shouldHandleSearchHotkey()) return;
-      e.preventDefault();
-      e.stopPropagation();
-      this.toggleSearchFromHotkey();
+      if (this.matchesSearchHotkey(e)) {
+        if (!this.shouldHandleSearchHotkey()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleSearchFromHotkey();
+        return;
+      }
+      if (this.matchesTocPanelHotkey(e)) {
+        if (!this.shouldHandleSearchHotkey()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleToc();
+      }
     };
     document.addEventListener("keydown", this.boundGlobalKeydown, true);
     window.addEventListener("keydown", this.boundGlobalKeydown, true);
   }
-  matchesSearchHotkey(e) {
-    const raw = this.plugin.settings.searchHotkey || "Ctrl+F";
+  matchesHotkey(e, raw) {
     const parts = raw.split("+").map((p) => p.trim().toLowerCase()).filter(Boolean);
     const key = parts.find((p) => !["ctrl", "control", "cmd", "meta", "alt", "shift"].includes(p));
     if (!key) return false;
@@ -1140,10 +1171,21 @@ var ReaderView = class extends import_obsidian.ItemView {
     const eventCode = e.code.toLowerCase().replace(/^key/, "");
     return (eventKey === key || eventCode === key) && e.ctrlKey === (parts.includes("ctrl") || parts.includes("control")) && e.metaKey === (parts.includes("cmd") || parts.includes("meta")) && e.altKey === parts.includes("alt") && e.shiftKey === parts.includes("shift");
   }
+  matchesSearchHotkey(e) {
+    return this.matchesHotkey(e, this.plugin.settings.searchHotkey || "Ctrl+F");
+  }
+  matchesTocPanelHotkey(e) {
+    return this.matchesHotkey(e, this.plugin.settings.tocPanelHotkey || "Ctrl+B");
+  }
   handleKeydown(e) {
     if (this.matchesSearchHotkey(e)) {
       e.preventDefault();
       this.toggleSearchFromHotkey();
+      return;
+    }
+    if (this.matchesTocPanelHotkey(e)) {
+      e.preventDefault();
+      this.toggleToc();
       return;
     }
     if (e.key === " " || e.code === "Space") {
@@ -1235,6 +1277,45 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (!this.currentFile) return;
     const merged = { ...this.getBookSettings(), annotations: next };
     await this.plugin.saveBookSettings(this.currentFile.path, merged);
+    if (this.isTocOpen && this.sidebarMode === "notes") {
+      this.renderNotesPane();
+    }
+  }
+  renderNotesPane() {
+    if (!this.notesPaneEl) return;
+    this.notesPaneEl.empty();
+    const annos = [...this.getAnnotations()].map((a, idx) => ({ a, idx })).sort((x, y) => x.a.paraIndex - y.a.paraIndex || x.a.startOffset - y.a.startOffset);
+    if (annos.length === 0) {
+      this.notesPaneEl.createDiv({ cls: "puffs-search-empty", text: "\u5F53\u524D\u4E66\u6CA1\u6709\u6807\u6CE8\u6216\u6279\u6CE8" });
+      return;
+    }
+    annos.forEach(({ a, idx }) => {
+      const card = this.notesPaneEl.createDiv({ cls: "puffs-search-card puffs-note-card" });
+      const head = card.createDiv({ cls: "puffs-note-card-head" });
+      const chapter = this.getActiveChapterIndex(a.paraIndex);
+      head.createDiv({
+        cls: "puffs-search-card-title puffs-note-card-title",
+        text: chapter >= 0 ? this.chapters[chapter].title : `\u7B2C ${a.paraIndex + 1} \u6BB5`
+      });
+      const closeBtn = head.createEl("button", {
+        cls: "puffs-note-card-close",
+        text: "\xD7",
+        attr: { "aria-label": "\u5220\u9664" }
+      });
+      closeBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const next = this.getAnnotations().filter((_, i) => i !== idx);
+        await this.setAnnotations(next);
+        this.renderCurrentPage();
+      });
+      if (a.note) {
+        card.createDiv({ cls: "puffs-note-card-note", text: `\u6279\u6CE8\uFF1A${a.note}` });
+      }
+      card.createDiv({ cls: "puffs-search-card-preview", text: a.text });
+      card.addEventListener("click", () => {
+        this.jumpToPosition({ paraIndex: a.paraIndex, charOffset: a.startOffset });
+      });
+    });
   }
   /**
    * 把当前选区解析为段内字符位置。仅支持单段落选区，跨段落或不在阅读区内时返回 null。
@@ -1401,9 +1482,17 @@ var AnnotationInputModal = class extends import_obsidian.Modal {
     this.onSubmit = onSubmit;
   }
   onOpen() {
-    const { contentEl } = this;
+    const { contentEl, modalEl } = this;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "\u6DFB\u52A0\u6279\u6CE8" });
+    modalEl.addClass("puffs-anno-modal");
+    const header = contentEl.createDiv({ cls: "puffs-anno-modal-header" });
+    header.createEl("h3", { cls: "puffs-anno-modal-title", text: "\u6DFB\u52A0\u6279\u6CE8" });
+    const closeBtn = header.createEl("button", {
+      cls: "puffs-anno-modal-close",
+      text: "\xD7",
+      attr: { "aria-label": "\u5173\u95ED" }
+    });
+    closeBtn.addEventListener("click", () => this.close());
     const preview = contentEl.createDiv({ cls: "puffs-anno-modal-preview" });
     preview.textContent = this.defaultText;
     const input = contentEl.createEl("input", {
@@ -1420,6 +1509,8 @@ var AnnotationInputModal = class extends import_obsidian.Modal {
       } else if (e.key === "Escape") {
         e.preventDefault();
         this.close();
+      } else if ((e.key === " " || e.code === "Space") && input.value.length === 0) {
+        e.preventDefault();
       }
     });
   }
@@ -1450,6 +1541,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     this.addNumberSetting("\u5DE6\u4FA7\u680F\u5BBD\u5EA6", "\u76EE\u5F55\u548C\u5168\u6587\u641C\u7D22\u4FA7\u680F\u5BBD\u5EA6 (px)", "sidebarWidth", 220, 520, 1, "px");
     this.addNumberSetting("\u4FA7\u680F\u8FC7\u6E21\u901F\u5EA6", "\u76EE\u5F55\u548C\u5168\u6587\u641C\u7D22\u4FA7\u680F\u5C55\u5F00/\u6536\u8D77\u52A8\u753B\u65F6\u957F (ms)", "sidebarTransitionMs", 0, 800, 10, "ms");
     this.addNumberSetting("\u76EE\u5F55\u5B57\u4F53\u5927\u5C0F", "\u5DE6\u4FA7\u76EE\u5F55\u6761\u76EE\u7684\u5B57\u4F53\u5927\u5C0F (px)", "tocFontSize", 11, 20, 1, "px");
+    this.addNumberSetting("\u4FA7\u680F\u4E66\u540D\u5B57\u53F7", "\u4FA7\u8FB9\u680F\u9876\u90E8\u4E66\u540D\u7684\u5B57\u53F7 (px)", "sidebarTitleFontSize", 11, 28, 1, "px");
     this.addTextSetting("\u5B57\u4F53\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 51,51,51\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "fontColor", "\u4F8B\u5982 51,51,51");
     this.addTextSetting("\u4E66\u7C4D\u80CC\u666F\u989C\u8272", "RGB \u683C\u5F0F\uFF0C\u5982 233,216,188\u3002\u7559\u7A7A\u8DDF\u968F\u4E3B\u9898\u3002", "backgroundColor", "\u4F8B\u5982 233,216,188");
     this.addTextSetting("\u53F3\u4E0A\u89D2\u6309\u94AE\u989C\u8272", "RGB \u683C\u5F0F\uFF1B\u63A7\u5236\u9605\u8BFB\u533A\u53F3\u4E0A\u89D2\u4E24\u4E2A\u6D6E\u52A8\u6309\u94AE\u7684\u56FE\u6807\u989C\u8272\u3002", "floatingButtonColor", "\u4F8B\u5982 120,120,120");
@@ -1494,6 +1586,12 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       "\u9ED8\u8BA4 Ctrl+F\u3002\u652F\u6301 Ctrl/Alt/Shift \u52A0\u5355\u4E2A\u6309\u952E\uFF0C\u4F8B\u5982 Ctrl+Shift+F\u3002",
       "searchHotkey",
       DEFAULT_SETTINGS.searchHotkey
+    );
+    this.addTextSetting(
+      "\u76EE\u5F55\u9762\u677F\u5FEB\u6377\u952E",
+      "\u9ED8\u8BA4 Ctrl+B\u3002\u7528\u4E8E\u5F39\u51FA/\u6536\u8D77\u5DE6\u4FA7\u76EE\u5F55\u4FA7\u8FB9\u680F\u3002",
+      "tocPanelHotkey",
+      DEFAULT_SETTINGS.tocPanelHotkey
     );
     containerEl.createEl("h3", { text: "\u6807\u6CE8\u4E0E\u6279\u6CE8" });
     this.addTextSetting(
@@ -1548,7 +1646,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
   addTextSetting(name, desc, key, placeholder) {
     new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addText(
       (text) => text.setPlaceholder(placeholder).setValue(this.plugin.settings[key]).onChange(async (v) => {
-        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : "";
+        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : key === "tocPanelHotkey" ? DEFAULT_SETTINGS.tocPanelHotkey : "";
         this.plugin.settings[key] = v.trim() || fallback;
         await this.plugin.savePluginData();
         this.refreshOpenReaders();
