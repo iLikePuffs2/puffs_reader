@@ -1,6 +1,6 @@
-import { ItemView, WorkspaceLeaf, Menu, TFile, ViewStateResult, setIcon, Scope } from 'obsidian';
+import { App, ItemView, Modal, Menu, Notice, TFile, ViewStateResult, WorkspaceLeaf, setIcon, Scope } from 'obsidian';
 import PuffsReaderPlugin from './main';
-import { BookSettings, Chapter, DEFAULT_CHAPTER_TITLE_REGEX, SearchMatch, SUPPORTED_ENCODINGS } from './types';
+import { Annotation, BookSettings, Chapter, DEFAULT_CHAPTER_TITLE_REGEX, SearchMatch, SUPPORTED_ENCODINGS } from './types';
 
 export const READER_VIEW_TYPE = 'puffs-reader-view';
 
@@ -63,6 +63,10 @@ export class ReaderView extends ItemView {
   private searchTimer = 0;
   private resizeObserver: ResizeObserver | null = null;
   private boundGlobalKeydown: ((e: KeyboardEvent) => void) | null = null;
+
+  private spaceHoldTimer = 0;
+  private spaceHoldFired = false;
+  private spacePressedSelection: { paraIndex: number; startOffset: number; length: number; text: string } | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: PuffsReaderPlugin) {
     super(leaf);
@@ -240,8 +244,10 @@ export class ReaderView extends ItemView {
     this.searchBackBtn.addEventListener('click', () => this.returnFromSearchJump());
 
     this.contentContainer = this.readingArea.createDiv({ cls: 'puffs-page-content' });
+    this.contentContainer.addEventListener('contextmenu', (e) => this.handleAnnotationContextMenu(e));
 
     this.readingArea.addEventListener('keydown', (e) => this.handleKeydown(e));
+    this.readingArea.addEventListener('keyup', (e) => this.handleKeyup(e));
     this.readingArea.addEventListener('pointerdown', (e) => this.closePanelsOnOutsideClick(e));
     this.readingArea.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -519,23 +525,71 @@ export class ReaderView extends ItemView {
       p.classList.add('puffs-para-continued');
     }
 
-    if (withHighlight && this.searchResults.length > 0) {
-      const end = charOffset + text.length;
-      const matches = this.searchResults
-        .filter((m) => m.paraIndex === paraIndex && m.startOffset < end && m.startOffset + m.length > charOffset)
-        .map((m) => ({
-          paraIndex,
-          startOffset: Math.max(0, m.startOffset - charOffset),
-          length: Math.min(m.startOffset + m.length, end) - Math.max(m.startOffset, charOffset),
-        }));
-      if (matches.length > 0) {
-        p.innerHTML = this.buildHighlightedHTML(text, matches);
+    if (withHighlight) {
+      const html = this.buildDecoratedHTML(text, paraIndex, charOffset);
+      if (html !== null) {
+        p.innerHTML = html;
         return p;
       }
     }
 
     p.textContent = text;
     return p;
+  }
+
+  /**
+   * 把当前段落的可见区间内涉及到的搜索高亮 + 标注/批注合并渲染为 HTML。
+   * 没有任何装饰时返回 null，让调用方走 textContent 快路径。
+   */
+  private buildDecoratedHTML(text: string, paraIndex: number, charOffset: number): string | null {
+    const end = charOffset + text.length;
+    const annos = this.getAnnotations()
+      .map((a, idx) => ({ a, idx }))
+      .filter(({ a }) => a.paraIndex === paraIndex && a.startOffset < end && a.startOffset + a.length > charOffset);
+    const searches = this.searchResults
+      .filter((m) => m.paraIndex === paraIndex && m.startOffset < end && m.startOffset + m.length > charOffset);
+
+    if (annos.length === 0 && searches.length === 0) return null;
+
+    type Token = { start: number; end: number; kind: 'anno' | 'search'; annoIdx?: number; hasNote?: boolean };
+    const tokens: Token[] = [];
+    for (const { a, idx } of annos) {
+      const localStart = Math.max(0, a.startOffset - charOffset);
+      const localEnd = Math.min(text.length, a.startOffset + a.length - charOffset);
+      if (localEnd <= localStart) continue;
+      tokens.push({ start: localStart, end: localEnd, kind: 'anno', annoIdx: idx, hasNote: !!a.note });
+    }
+    for (const m of searches) {
+      const localStart = Math.max(0, m.startOffset - charOffset);
+      const localEnd = Math.min(text.length, m.startOffset + m.length - charOffset);
+      if (localEnd <= localStart) continue;
+      tokens.push({ start: localStart, end: localEnd, kind: 'search' });
+    }
+    tokens.sort((a, b) => a.start - b.start || (a.kind === 'anno' ? -1 : 1));
+
+    let result = '';
+    let cursor = 0;
+    for (const t of tokens) {
+      if (t.start < cursor) continue;
+      if (t.start > cursor) result += this.escapeHTML(text.slice(cursor, t.start));
+      const inner = text.slice(t.start, t.end);
+      if (t.kind === 'search') {
+        result += `<span class="puffs-search-hl">${this.escapeHTML(inner)}</span>`;
+      } else {
+        const cls = t.hasNote ? 'puffs-annotation puffs-has-note' : 'puffs-annotation';
+        const idxAttr = t.annoIdx !== undefined ? ` data-anno-idx="${t.annoIdx}"` : '';
+        if (t.hasNote && inner.length > 0) {
+          const first = this.escapeHTML(inner.slice(0, 1));
+          const rest = this.escapeHTML(inner.slice(1));
+          result += `<span class="${cls}"${idxAttr}><span class="puffs-anno-first">${first}</span>${rest}</span>`;
+        } else {
+          result += `<span class="${cls}"${idxAttr}>${this.escapeHTML(inner)}</span>`;
+        }
+      }
+      cursor = t.end;
+    }
+    if (cursor < text.length) result += this.escapeHTML(text.slice(cursor));
+    return result;
   }
 
   private isContentOverflowing(): boolean {
@@ -1002,6 +1056,14 @@ export class ReaderView extends ItemView {
       this.buildTocList();
       this.updatePageMeta();
     });
+
+    const exportRow = p.createDiv({ cls: 'puffs-typo-row' });
+    exportRow.createSpan({ cls: 'puffs-typo-label', text: '标注与批注' });
+    const exportBtn = exportRow.createEl('button', {
+      cls: 'puffs-icon-btn',
+      text: '导出 Markdown',
+    });
+    exportBtn.addEventListener('click', () => this.exportAnnotations());
   }
 
   private addNumberRow(
@@ -1071,6 +1133,13 @@ export class ReaderView extends ItemView {
 
     if (rgbFont) this.contentContainer.style.setProperty('--puffs-font-color', rgbFont);
     else this.contentContainer.style.removeProperty('--puffs-font-color');
+
+    const annoBg = s.annotationHighlightColor ? `rgba(${s.annotationHighlightColor},0.42)` : '';
+    if (annoBg) this.rootEl.style.setProperty('--puffs-anno-bg', annoBg);
+    else this.rootEl.style.removeProperty('--puffs-anno-bg');
+    const annoFirst = s.annotationFirstCharColor ? `rgb(${s.annotationFirstCharColor})` : '';
+    if (annoFirst) this.rootEl.style.setProperty('--puffs-anno-first-color', annoFirst);
+    else this.rootEl.style.removeProperty('--puffs-anno-first-color');
     if (chapterColor) this.rootEl.style.setProperty('--puffs-chapter-meta-color', chapterColor);
     else this.rootEl.style.removeProperty('--puffs-chapter-meta-color');
     if (progressColor) this.rootEl.style.setProperty('--puffs-progress-meta-color', progressColor);
@@ -1216,6 +1285,26 @@ export class ReaderView extends ItemView {
       this.toggleSearchFromHotkey();
       return;
     }
+    if (e.key === ' ' || e.code === 'Space') {
+      if (e.repeat) {
+        e.preventDefault();
+        return;
+      }
+      const sel = this.captureSelection();
+      if (sel) {
+        e.preventDefault();
+        this.spacePressedSelection = sel;
+        this.spaceHoldFired = false;
+        window.clearTimeout(this.spaceHoldTimer);
+        this.spaceHoldTimer = window.setTimeout(() => {
+          this.spaceHoldFired = true;
+          if (this.spacePressedSelection) {
+            this.openAnnotationModal(this.spacePressedSelection);
+          }
+        }, 300);
+      }
+      return;
+    }
     if (e.key === 'ArrowRight') {
       e.preventDefault();
       this.pageDown();
@@ -1226,6 +1315,19 @@ export class ReaderView extends ItemView {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
+    }
+  }
+
+  private handleKeyup(e: KeyboardEvent): void {
+    if (e.key !== ' ' && e.code !== 'Space') return;
+    window.clearTimeout(this.spaceHoldTimer);
+    const sel = this.spacePressedSelection;
+    const fired = this.spaceHoldFired;
+    this.spacePressedSelection = null;
+    this.spaceHoldFired = false;
+    if (sel && !fired) {
+      e.preventDefault();
+      this.addAnnotation(sel, undefined);
     }
   }
 
@@ -1269,5 +1371,225 @@ export class ReaderView extends ItemView {
 
   private escapeHTML(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ═══════════════════════════ 标注 / 批注 ═══════════════════════════
+
+  private getAnnotations(): Annotation[] {
+    return this.getBookSettings().annotations ?? [];
+  }
+
+  private async setAnnotations(next: Annotation[]): Promise<void> {
+    if (!this.currentFile) return;
+    const merged = { ...this.getBookSettings(), annotations: next };
+    await this.plugin.saveBookSettings(this.currentFile.path, merged);
+  }
+
+  /**
+   * 把当前选区解析为段内字符位置。仅支持单段落选区，跨段落或不在阅读区内时返回 null。
+   */
+  private captureSelection(): { paraIndex: number; startOffset: number; length: number; text: string } | null {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    if (!this.contentContainer.contains(range.startContainer) || !this.contentContainer.contains(range.endContainer)) {
+      return null;
+    }
+    const startPara = this.findParaElement(range.startContainer);
+    const endPara = this.findParaElement(range.endContainer);
+    if (!startPara || !endPara) return null;
+    if (startPara !== endPara) {
+      console.warn('[puffs-reader] 标注暂不支持跨段落选择');
+      return null;
+    }
+    const paraIndex = Number(startPara.dataset.paraIndex);
+    const baseOffset = Number(startPara.dataset.charOffset);
+    if (!Number.isFinite(paraIndex) || !Number.isFinite(baseOffset)) return null;
+
+    const localStart = this.nodeOffsetToTextOffset(startPara, range.startContainer, range.startOffset);
+    const localEnd = this.nodeOffsetToTextOffset(startPara, range.endContainer, range.endOffset);
+    const lo = Math.min(localStart, localEnd);
+    const hi = Math.max(localStart, localEnd);
+    if (hi <= lo) return null;
+    const fullText = this.paragraphs[paraIndex] ?? '';
+    const startOffset = baseOffset + lo;
+    const length = hi - lo;
+    const text = fullText.slice(startOffset, startOffset + length);
+    if (!text) return null;
+    return { paraIndex, startOffset, length, text };
+  }
+
+  private findParaElement(node: Node | null): HTMLElement | null {
+    let cur: Node | null = node;
+    while (cur && cur !== this.contentContainer) {
+      if (cur.nodeType === Node.ELEMENT_NODE) {
+        const el = cur as HTMLElement;
+        if (el.classList.contains('puffs-para')) return el;
+      }
+      cur = cur.parentNode;
+    }
+    return null;
+  }
+
+  /** 把 (node, offset) 在 paragraph 内换算为纯文本偏移。 */
+  private nodeOffsetToTextOffset(para: HTMLElement, node: Node, offset: number): number {
+    let total = 0;
+    const walk = (current: Node): boolean => {
+      if (current === node) {
+        if (current.nodeType === Node.TEXT_NODE) {
+          total += offset;
+        } else {
+          for (let i = 0; i < offset && i < current.childNodes.length; i++) {
+            total += (current.childNodes[i].textContent ?? '').length;
+          }
+        }
+        return true;
+      }
+      if (current.nodeType === Node.TEXT_NODE) {
+        total += (current.textContent ?? '').length;
+        return false;
+      }
+      for (const child of Array.from(current.childNodes)) {
+        if (walk(child)) return true;
+      }
+      return false;
+    };
+    walk(para);
+    return total;
+  }
+
+  private async addAnnotation(
+    sel: { paraIndex: number; startOffset: number; length: number; text: string },
+    note: string | undefined,
+  ): Promise<void> {
+    const next = [...this.getAnnotations()];
+    next.push({
+      paraIndex: sel.paraIndex,
+      startOffset: sel.startOffset,
+      length: sel.length,
+      text: sel.text,
+      note: note && note.trim() ? note.trim() : undefined,
+      createdAt: Date.now(),
+    });
+    await this.setAnnotations(next);
+    window.getSelection()?.removeAllRanges();
+    this.renderCurrentPage();
+  }
+
+  private openAnnotationModal(sel: { paraIndex: number; startOffset: number; length: number; text: string }): void {
+    new AnnotationInputModal(this.app, sel.text, (note) => {
+      this.addAnnotation(sel, note);
+    }).open();
+  }
+
+  private handleAnnotationContextMenu(e: MouseEvent): void {
+    const target = (e.target as HTMLElement | null)?.closest?.('.puffs-annotation') as HTMLElement | null;
+    if (!target) return;
+    const idx = Number(target.dataset.annoIdx);
+    if (!Number.isFinite(idx)) return;
+    const annos = this.getAnnotations();
+    const anno = annos[idx];
+    if (!anno) return;
+    e.preventDefault();
+    const menu = new Menu();
+    if (anno.note) {
+      menu.addItem((item) =>
+        item.setTitle(`批注: ${anno.note}`).setIcon('message-square').setDisabled(true),
+      );
+      menu.addSeparator();
+    }
+    menu.addItem((item) =>
+      item.setTitle('删除').setIcon('trash').onClick(async () => {
+        const next = annos.filter((_, i) => i !== idx);
+        await this.setAnnotations(next);
+        this.renderCurrentPage();
+      }),
+    );
+    menu.showAtMouseEvent(e);
+  }
+
+  private async exportAnnotations(): Promise<void> {
+    if (!this.currentFile) return;
+    const annos = [...this.getAnnotations()].sort(
+      (a, b) => a.paraIndex - b.paraIndex || a.startOffset - b.startOffset,
+    );
+    if (annos.length === 0) {
+      new Notice('当前书没有标注');
+      return;
+    }
+
+    const basename = this.currentFile.basename;
+    const blocks = annos.map((a) => {
+      const lines: string[] = [];
+      if (a.note) lines.push(`批注：${a.note}`);
+      lines.push(a.text);
+      return lines.join('\n');
+    });
+    const markdown = blocks.join('\n\n') + '\n';
+
+    const dir = (this.plugin.settings.annotationExportDir ?? '').trim().replace(/^\/+|\/+$/g, '');
+    if (dir) {
+      try {
+        await this.app.vault.createFolder(dir);
+      } catch {
+        // 已存在则忽略
+      }
+    }
+    const targetPath = await this.findAvailableExportPath(dir, `${basename}-笔记`);
+    await this.app.vault.adapter.write(targetPath, markdown);
+    new Notice(`已导出 ${annos.length} 条到 ${targetPath}`);
+  }
+
+  /** 在目录里寻找一个未占用的 md 文件名；同名时追加 `-2`、`-3` ... */
+  private async findAvailableExportPath(dir: string, baseName: string): Promise<string> {
+    const prefix = dir ? dir + '/' : '';
+    const first = `${prefix}${baseName}.md`;
+    if (!(await this.app.vault.adapter.exists(first))) return first;
+    for (let i = 2; i < 1000; i++) {
+      const candidate = `${prefix}${baseName}-${i}.md`;
+      if (!(await this.app.vault.adapter.exists(candidate))) return candidate;
+    }
+    return `${prefix}${baseName}-${Date.now()}.md`;
+  }
+}
+
+// ═══════════════════════════ 批注输入弹窗 ═══════════════════════════
+
+class AnnotationInputModal extends Modal {
+  private defaultText: string;
+  private onSubmit: (note: string) => void;
+
+  constructor(app: App, defaultText: string, onSubmit: (note: string) => void) {
+    super(app);
+    this.defaultText = defaultText;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl('h3', { text: '添加批注' });
+    const preview = contentEl.createDiv({ cls: 'puffs-anno-modal-preview' });
+    preview.textContent = this.defaultText;
+    const input = contentEl.createEl('input', {
+      cls: 'puffs-anno-modal-input',
+      attr: { type: 'text', placeholder: '输入批注内容，回车保存' },
+    }) as HTMLInputElement;
+    setTimeout(() => input.focus(), 0);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const value = input.value;
+        this.close();
+        this.onSubmit(value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.close();
+      }
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }

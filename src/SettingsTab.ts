@@ -94,6 +94,26 @@ export class SettingsTab extends PluginSettingTab {
       'searchHotkey',
       DEFAULT_SETTINGS.searchHotkey,
     );
+
+    containerEl.createEl('h3', { text: '标注与批注' });
+    this.addTextSetting(
+      '标注高亮颜色',
+      'RGB 格式，如 255,200,50。留空则跟随浏览器选区色。',
+      'annotationHighlightColor',
+      '例如 255,200,50',
+    );
+    this.addTextSetting(
+      '批注首字颜色',
+      'RGB 格式；批注首字符会用此颜色突出显示。',
+      'annotationFirstCharColor',
+      '例如 255,140,0',
+    );
+    this.addTextSetting(
+      '导出目录',
+      'vault 内相对路径；留空则导出到根目录。文件名固定为「书名.md」。',
+      'annotationExportDir',
+      '例如 阅读笔记',
+    );
   }
 
   private addNumberSetting(
@@ -152,7 +172,7 @@ export class SettingsTab extends PluginSettingTab {
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey',
+    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'annotationHighlightColor' | 'annotationFirstCharColor' | 'annotationExportDir',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)
