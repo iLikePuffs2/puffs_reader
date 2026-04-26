@@ -65,7 +65,10 @@ var DEFAULT_SETTINGS = {
   removeExtraBlankLines: true,
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: "utf-8",
-  searchHotkey: "Ctrl+F"
+  searchHotkey: "Ctrl+F",
+  annotationHighlightColor: "",
+  annotationFirstCharColor: "255,140,0",
+  annotationExportDir: ""
 };
 
 // src/ReaderView.ts
@@ -94,6 +97,9 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.searchTimer = 0;
     this.resizeObserver = null;
     this.boundGlobalKeydown = null;
+    this.spaceHoldTimer = 0;
+    this.spaceHoldFired = false;
+    this.spacePressedSelection = null;
     this.plugin = plugin;
     this.scope = new import_obsidian.Scope(this.app.scope);
     this.scope.register(null, "Escape", (evt) => {
@@ -244,7 +250,9 @@ var ReaderView = class extends import_obsidian.ItemView {
     });
     this.searchBackBtn.addEventListener("click", () => this.returnFromSearchJump());
     this.contentContainer = this.readingArea.createDiv({ cls: "puffs-page-content" });
+    this.contentContainer.addEventListener("contextmenu", (e) => this.handleAnnotationContextMenu(e));
     this.readingArea.addEventListener("keydown", (e) => this.handleKeydown(e));
+    this.readingArea.addEventListener("keyup", (e) => this.handleKeyup(e));
     this.readingArea.addEventListener("pointerdown", (e) => this.closePanelsOnOutsideClick(e));
     this.readingArea.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -474,20 +482,62 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (continuesAfterPage) {
       p.classList.add("puffs-para-continued");
     }
-    if (withHighlight && this.searchResults.length > 0) {
-      const end = charOffset + text.length;
-      const matches = this.searchResults.filter((m) => m.paraIndex === paraIndex && m.startOffset < end && m.startOffset + m.length > charOffset).map((m) => ({
-        paraIndex,
-        startOffset: Math.max(0, m.startOffset - charOffset),
-        length: Math.min(m.startOffset + m.length, end) - Math.max(m.startOffset, charOffset)
-      }));
-      if (matches.length > 0) {
-        p.innerHTML = this.buildHighlightedHTML(text, matches);
+    if (withHighlight) {
+      const html = this.buildDecoratedHTML(text, paraIndex, charOffset);
+      if (html !== null) {
+        p.innerHTML = html;
         return p;
       }
     }
     p.textContent = text;
     return p;
+  }
+  /**
+   * 把当前段落的可见区间内涉及到的搜索高亮 + 标注/批注合并渲染为 HTML。
+   * 没有任何装饰时返回 null，让调用方走 textContent 快路径。
+   */
+  buildDecoratedHTML(text, paraIndex, charOffset) {
+    const end = charOffset + text.length;
+    const annos = this.getAnnotations().map((a, idx) => ({ a, idx })).filter(({ a }) => a.paraIndex === paraIndex && a.startOffset < end && a.startOffset + a.length > charOffset);
+    const searches = this.searchResults.filter((m) => m.paraIndex === paraIndex && m.startOffset < end && m.startOffset + m.length > charOffset);
+    if (annos.length === 0 && searches.length === 0) return null;
+    const tokens = [];
+    for (const { a, idx } of annos) {
+      const localStart = Math.max(0, a.startOffset - charOffset);
+      const localEnd = Math.min(text.length, a.startOffset + a.length - charOffset);
+      if (localEnd <= localStart) continue;
+      tokens.push({ start: localStart, end: localEnd, kind: "anno", annoIdx: idx, hasNote: !!a.note });
+    }
+    for (const m of searches) {
+      const localStart = Math.max(0, m.startOffset - charOffset);
+      const localEnd = Math.min(text.length, m.startOffset + m.length - charOffset);
+      if (localEnd <= localStart) continue;
+      tokens.push({ start: localStart, end: localEnd, kind: "search" });
+    }
+    tokens.sort((a, b) => a.start - b.start || (a.kind === "anno" ? -1 : 1));
+    let result = "";
+    let cursor = 0;
+    for (const t of tokens) {
+      if (t.start < cursor) continue;
+      if (t.start > cursor) result += this.escapeHTML(text.slice(cursor, t.start));
+      const inner = text.slice(t.start, t.end);
+      if (t.kind === "search") {
+        result += `<span class="puffs-search-hl">${this.escapeHTML(inner)}</span>`;
+      } else {
+        const cls = t.hasNote ? "puffs-annotation puffs-has-note" : "puffs-annotation";
+        const idxAttr = t.annoIdx !== void 0 ? ` data-anno-idx="${t.annoIdx}"` : "";
+        if (t.hasNote && inner.length > 0) {
+          const first = this.escapeHTML(inner.slice(0, 1));
+          const rest = this.escapeHTML(inner.slice(1));
+          result += `<span class="${cls}"${idxAttr}><span class="puffs-anno-first">${first}</span>${rest}</span>`;
+        } else {
+          result += `<span class="${cls}"${idxAttr}>${this.escapeHTML(inner)}</span>`;
+        }
+      }
+      cursor = t.end;
+    }
+    if (cursor < text.length) result += this.escapeHTML(text.slice(cursor));
+    return result;
   }
   isContentOverflowing() {
     return this.contentContainer.scrollHeight > this.contentContainer.clientHeight;
@@ -902,6 +952,13 @@ var ReaderView = class extends import_obsidian.ItemView {
       this.buildTocList();
       this.updatePageMeta();
     });
+    const exportRow = p.createDiv({ cls: "puffs-typo-row" });
+    exportRow.createSpan({ cls: "puffs-typo-label", text: "\u6807\u6CE8\u4E0E\u6279\u6CE8" });
+    const exportBtn = exportRow.createEl("button", {
+      cls: "puffs-icon-btn",
+      text: "\u5BFC\u51FA Markdown"
+    });
+    exportBtn.addEventListener("click", () => this.exportAnnotations());
   }
   addNumberRow(parent, label, value, min, max, step, unit, onChange) {
     const row = parent.createDiv({ cls: "puffs-typo-row" });
@@ -956,6 +1013,12 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.rootEl.style.setProperty("--puffs-progress-meta-bottom", `${s.progressMetaBottom}px`);
     if (rgbFont) this.contentContainer.style.setProperty("--puffs-font-color", rgbFont);
     else this.contentContainer.style.removeProperty("--puffs-font-color");
+    const annoBg = s.annotationHighlightColor ? `rgba(${s.annotationHighlightColor},0.42)` : "";
+    if (annoBg) this.rootEl.style.setProperty("--puffs-anno-bg", annoBg);
+    else this.rootEl.style.removeProperty("--puffs-anno-bg");
+    const annoFirst = s.annotationFirstCharColor ? `rgb(${s.annotationFirstCharColor})` : "";
+    if (annoFirst) this.rootEl.style.setProperty("--puffs-anno-first-color", annoFirst);
+    else this.rootEl.style.removeProperty("--puffs-anno-first-color");
     if (chapterColor) this.rootEl.style.setProperty("--puffs-chapter-meta-color", chapterColor);
     else this.rootEl.style.removeProperty("--puffs-chapter-meta-color");
     if (progressColor) this.rootEl.style.setProperty("--puffs-progress-meta-color", progressColor);
@@ -1083,6 +1146,26 @@ var ReaderView = class extends import_obsidian.ItemView {
       this.toggleSearchFromHotkey();
       return;
     }
+    if (e.key === " " || e.code === "Space") {
+      if (e.repeat) {
+        e.preventDefault();
+        return;
+      }
+      const sel = this.captureSelection();
+      if (sel) {
+        e.preventDefault();
+        this.spacePressedSelection = sel;
+        this.spaceHoldFired = false;
+        window.clearTimeout(this.spaceHoldTimer);
+        this.spaceHoldTimer = window.setTimeout(() => {
+          this.spaceHoldFired = true;
+          if (this.spacePressedSelection) {
+            this.openAnnotationModal(this.spacePressedSelection);
+          }
+        }, 300);
+      }
+      return;
+    }
     if (e.key === "ArrowRight") {
       e.preventDefault();
       this.pageDown();
@@ -1093,6 +1176,18 @@ var ReaderView = class extends import_obsidian.ItemView {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
+    }
+  }
+  handleKeyup(e) {
+    if (e.key !== " " && e.code !== "Space") return;
+    window.clearTimeout(this.spaceHoldTimer);
+    const sel = this.spacePressedSelection;
+    const fired = this.spaceHoldFired;
+    this.spacePressedSelection = null;
+    this.spaceHoldFired = false;
+    if (sel && !fired) {
+      e.preventDefault();
+      this.addAnnotation(sel, void 0);
     }
   }
   isReaderKeyboardActive() {
@@ -1130,6 +1225,206 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   escapeHTML(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  // ═══════════════════════════ 标注 / 批注 ═══════════════════════════
+  getAnnotations() {
+    var _a;
+    return (_a = this.getBookSettings().annotations) != null ? _a : [];
+  }
+  async setAnnotations(next) {
+    if (!this.currentFile) return;
+    const merged = { ...this.getBookSettings(), annotations: next };
+    await this.plugin.saveBookSettings(this.currentFile.path, merged);
+  }
+  /**
+   * 把当前选区解析为段内字符位置。仅支持单段落选区，跨段落或不在阅读区内时返回 null。
+   */
+  captureSelection() {
+    var _a;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    if (!this.contentContainer.contains(range.startContainer) || !this.contentContainer.contains(range.endContainer)) {
+      return null;
+    }
+    const startPara = this.findParaElement(range.startContainer);
+    const endPara = this.findParaElement(range.endContainer);
+    if (!startPara || !endPara) return null;
+    if (startPara !== endPara) {
+      console.warn("[puffs-reader] \u6807\u6CE8\u6682\u4E0D\u652F\u6301\u8DE8\u6BB5\u843D\u9009\u62E9");
+      return null;
+    }
+    const paraIndex = Number(startPara.dataset.paraIndex);
+    const baseOffset = Number(startPara.dataset.charOffset);
+    if (!Number.isFinite(paraIndex) || !Number.isFinite(baseOffset)) return null;
+    const localStart = this.nodeOffsetToTextOffset(startPara, range.startContainer, range.startOffset);
+    const localEnd = this.nodeOffsetToTextOffset(startPara, range.endContainer, range.endOffset);
+    const lo = Math.min(localStart, localEnd);
+    const hi = Math.max(localStart, localEnd);
+    if (hi <= lo) return null;
+    const fullText = (_a = this.paragraphs[paraIndex]) != null ? _a : "";
+    const startOffset = baseOffset + lo;
+    const length = hi - lo;
+    const text = fullText.slice(startOffset, startOffset + length);
+    if (!text) return null;
+    return { paraIndex, startOffset, length, text };
+  }
+  findParaElement(node) {
+    let cur = node;
+    while (cur && cur !== this.contentContainer) {
+      if (cur.nodeType === Node.ELEMENT_NODE) {
+        const el = cur;
+        if (el.classList.contains("puffs-para")) return el;
+      }
+      cur = cur.parentNode;
+    }
+    return null;
+  }
+  /** 把 (node, offset) 在 paragraph 内换算为纯文本偏移。 */
+  nodeOffsetToTextOffset(para, node, offset) {
+    let total = 0;
+    const walk = (current) => {
+      var _a, _b;
+      if (current === node) {
+        if (current.nodeType === Node.TEXT_NODE) {
+          total += offset;
+        } else {
+          for (let i = 0; i < offset && i < current.childNodes.length; i++) {
+            total += ((_a = current.childNodes[i].textContent) != null ? _a : "").length;
+          }
+        }
+        return true;
+      }
+      if (current.nodeType === Node.TEXT_NODE) {
+        total += ((_b = current.textContent) != null ? _b : "").length;
+        return false;
+      }
+      for (const child of Array.from(current.childNodes)) {
+        if (walk(child)) return true;
+      }
+      return false;
+    };
+    walk(para);
+    return total;
+  }
+  async addAnnotation(sel, note) {
+    var _a;
+    const next = [...this.getAnnotations()];
+    next.push({
+      paraIndex: sel.paraIndex,
+      startOffset: sel.startOffset,
+      length: sel.length,
+      text: sel.text,
+      note: note && note.trim() ? note.trim() : void 0,
+      createdAt: Date.now()
+    });
+    await this.setAnnotations(next);
+    (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
+    this.renderCurrentPage();
+  }
+  openAnnotationModal(sel) {
+    new AnnotationInputModal(this.app, sel.text, (note) => {
+      this.addAnnotation(sel, note);
+    }).open();
+  }
+  handleAnnotationContextMenu(e) {
+    var _a, _b;
+    const target = (_b = (_a = e.target) == null ? void 0 : _a.closest) == null ? void 0 : _b.call(_a, ".puffs-annotation");
+    if (!target) return;
+    const idx = Number(target.dataset.annoIdx);
+    if (!Number.isFinite(idx)) return;
+    const annos = this.getAnnotations();
+    const anno = annos[idx];
+    if (!anno) return;
+    e.preventDefault();
+    const menu = new import_obsidian.Menu();
+    if (anno.note) {
+      menu.addItem(
+        (item) => item.setTitle(`\u6279\u6CE8: ${anno.note}`).setIcon("message-square").setDisabled(true)
+      );
+      menu.addSeparator();
+    }
+    menu.addItem(
+      (item) => item.setTitle("\u5220\u9664").setIcon("trash").onClick(async () => {
+        const next = annos.filter((_, i) => i !== idx);
+        await this.setAnnotations(next);
+        this.renderCurrentPage();
+      })
+    );
+    menu.showAtMouseEvent(e);
+  }
+  async exportAnnotations() {
+    var _a;
+    if (!this.currentFile) return;
+    const annos = [...this.getAnnotations()].sort(
+      (a, b) => a.paraIndex - b.paraIndex || a.startOffset - b.startOffset
+    );
+    if (annos.length === 0) {
+      new import_obsidian.Notice("\u5F53\u524D\u4E66\u6CA1\u6709\u6807\u6CE8");
+      return;
+    }
+    const basename = this.currentFile.basename;
+    const blocks = annos.map((a) => {
+      const lines = [];
+      if (a.note) lines.push(`\u6279\u6CE8\uFF1A${a.note}`);
+      lines.push(a.text);
+      return lines.join("\n");
+    });
+    const markdown = blocks.join("\n\n") + "\n";
+    const dir = ((_a = this.plugin.settings.annotationExportDir) != null ? _a : "").trim().replace(/^\/+|\/+$/g, "");
+    if (dir) {
+      try {
+        await this.app.vault.createFolder(dir);
+      } catch (e) {
+      }
+    }
+    const targetPath = await this.findAvailableExportPath(dir, `${basename}-\u7B14\u8BB0`);
+    await this.app.vault.adapter.write(targetPath, markdown);
+    new import_obsidian.Notice(`\u5DF2\u5BFC\u51FA ${annos.length} \u6761\u5230 ${targetPath}`);
+  }
+  /** 在目录里寻找一个未占用的 md 文件名；同名时追加 `-2`、`-3` ... */
+  async findAvailableExportPath(dir, baseName) {
+    const prefix = dir ? dir + "/" : "";
+    const first = `${prefix}${baseName}.md`;
+    if (!await this.app.vault.adapter.exists(first)) return first;
+    for (let i = 2; i < 1e3; i++) {
+      const candidate = `${prefix}${baseName}-${i}.md`;
+      if (!await this.app.vault.adapter.exists(candidate)) return candidate;
+    }
+    return `${prefix}${baseName}-${Date.now()}.md`;
+  }
+};
+var AnnotationInputModal = class extends import_obsidian.Modal {
+  constructor(app, defaultText, onSubmit) {
+    super(app);
+    this.defaultText = defaultText;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "\u6DFB\u52A0\u6279\u6CE8" });
+    const preview = contentEl.createDiv({ cls: "puffs-anno-modal-preview" });
+    preview.textContent = this.defaultText;
+    const input = contentEl.createEl("input", {
+      cls: "puffs-anno-modal-input",
+      attr: { type: "text", placeholder: "\u8F93\u5165\u6279\u6CE8\u5185\u5BB9\uFF0C\u56DE\u8F66\u4FDD\u5B58" }
+    });
+    setTimeout(() => input.focus(), 0);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const value = input.value;
+        this.close();
+        this.onSubmit(value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.close();
+      }
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
   }
 };
 
@@ -1199,6 +1494,25 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       "\u9ED8\u8BA4 Ctrl+F\u3002\u652F\u6301 Ctrl/Alt/Shift \u52A0\u5355\u4E2A\u6309\u952E\uFF0C\u4F8B\u5982 Ctrl+Shift+F\u3002",
       "searchHotkey",
       DEFAULT_SETTINGS.searchHotkey
+    );
+    containerEl.createEl("h3", { text: "\u6807\u6CE8\u4E0E\u6279\u6CE8" });
+    this.addTextSetting(
+      "\u6807\u6CE8\u9AD8\u4EAE\u989C\u8272",
+      "RGB \u683C\u5F0F\uFF0C\u5982 255,200,50\u3002\u7559\u7A7A\u5219\u8DDF\u968F\u6D4F\u89C8\u5668\u9009\u533A\u8272\u3002",
+      "annotationHighlightColor",
+      "\u4F8B\u5982 255,200,50"
+    );
+    this.addTextSetting(
+      "\u6279\u6CE8\u9996\u5B57\u989C\u8272",
+      "RGB \u683C\u5F0F\uFF1B\u6279\u6CE8\u9996\u5B57\u7B26\u4F1A\u7528\u6B64\u989C\u8272\u7A81\u51FA\u663E\u793A\u3002",
+      "annotationFirstCharColor",
+      "\u4F8B\u5982 255,140,0"
+    );
+    this.addTextSetting(
+      "\u5BFC\u51FA\u76EE\u5F55",
+      "vault \u5185\u76F8\u5BF9\u8DEF\u5F84\uFF1B\u7559\u7A7A\u5219\u5BFC\u51FA\u5230\u6839\u76EE\u5F55\u3002\u6587\u4EF6\u540D\u56FA\u5B9A\u4E3A\u300C\u4E66\u540D.md\u300D\u3002",
+      "annotationExportDir",
+      "\u4F8B\u5982 \u9605\u8BFB\u7B14\u8BB0"
     );
   }
   addNumberSetting(name, desc, key, min, max, step, unit) {
@@ -1371,6 +1685,9 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     if (settings.tocRegex !== void 0 && settings.tocRegex !== "") compact.tocRegex = settings.tocRegex;
     if (settings.chapterTitleRegex !== void 0 && settings.chapterTitleRegex !== "") {
       compact.chapterTitleRegex = settings.chapterTitleRegex;
+    }
+    if (settings.annotations && settings.annotations.length > 0) {
+      compact.annotations = settings.annotations;
     }
     this.bookSettings[filePath] = compact;
     await this.savePluginData();

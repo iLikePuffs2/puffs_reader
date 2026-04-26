@@ -167,6 +167,9 @@ export default class PuffsReaderPlugin extends Plugin {
     if (settings.chapterTitleRegex !== undefined && settings.chapterTitleRegex !== '') {
       compact.chapterTitleRegex = settings.chapterTitleRegex;
     }
+    if (settings.annotations && settings.annotations.length > 0) {
+      compact.annotations = settings.annotations;
+    }
     this.bookSettings[filePath] = compact;
     await this.savePluginData();
   }

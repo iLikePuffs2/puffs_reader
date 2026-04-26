@@ -50,6 +50,28 @@ export interface ReaderSettings {
   defaultEncoding: string;
   /** 全文搜索快捷键 */
   searchHotkey: string;
+  /** 标注高亮背景色 (RGB)，空 = 跟随浏览器选区色 */
+  annotationHighlightColor: string;
+  /** 批注首字颜色 (RGB) */
+  annotationFirstCharColor: string;
+  /** 标注/批注导出目录（vault 内相对路径，留空 = 根目录） */
+  annotationExportDir: string;
+}
+
+/** 一条标注或批注 */
+export interface Annotation {
+  /** 起始段落索引 */
+  paraIndex: number;
+  /** 段内起始字符偏移 */
+  startOffset: number;
+  /** 选中文本长度（字符数） */
+  length: number;
+  /** 选中的原文（冗余存储，便于导出且抗源文件变化） */
+  text: string;
+  /** 批注文字；undefined 表示纯标注 */
+  note?: string;
+  /** 创建时间戳 */
+  createdAt: number;
 }
 
 /** 每本书的专用设置；undefined 表示回退全局设置 */
@@ -62,6 +84,8 @@ export interface BookSettings {
   tocRegex?: string;
   /** 当前书的章名提取正则覆写 */
   chapterTitleRegex?: string;
+  /** 当前书的标注/批注列表 */
+  annotations?: Annotation[];
 }
 
 /** 每本书的阅读进度 */
@@ -140,4 +164,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: 'utf-8',
   searchHotkey: 'Ctrl+F',
+  annotationHighlightColor: '',
+  annotationFirstCharColor: '255,140,0',
+  annotationExportDir: '',
 };
