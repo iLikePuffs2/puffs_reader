@@ -1663,14 +1663,7 @@ class AnnotationInputModal extends Modal {
     contentEl.empty();
     modalEl.addClass('puffs-anno-modal');
 
-    const header = contentEl.createDiv({ cls: 'puffs-anno-modal-header' });
-    header.createEl('h3', { cls: 'puffs-anno-modal-title', text: '添加批注' });
-    const closeBtn = header.createEl('button', {
-      cls: 'puffs-anno-modal-close',
-      text: '×',
-      attr: { 'aria-label': '关闭' },
-    });
-    closeBtn.addEventListener('click', () => this.close());
+    contentEl.createEl('h3', { cls: 'puffs-anno-modal-title', text: '添加批注' });
 
     const preview = contentEl.createDiv({ cls: 'puffs-anno-modal-preview' });
     preview.textContent = this.defaultText;

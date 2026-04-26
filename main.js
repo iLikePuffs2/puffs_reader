@@ -1485,14 +1485,7 @@ var AnnotationInputModal = class extends import_obsidian.Modal {
     const { contentEl, modalEl } = this;
     contentEl.empty();
     modalEl.addClass("puffs-anno-modal");
-    const header = contentEl.createDiv({ cls: "puffs-anno-modal-header" });
-    header.createEl("h3", { cls: "puffs-anno-modal-title", text: "\u6DFB\u52A0\u6279\u6CE8" });
-    const closeBtn = header.createEl("button", {
-      cls: "puffs-anno-modal-close",
-      text: "\xD7",
-      attr: { "aria-label": "\u5173\u95ED" }
-    });
-    closeBtn.addEventListener("click", () => this.close());
+    contentEl.createEl("h3", { cls: "puffs-anno-modal-title", text: "\u6DFB\u52A0\u6279\u6CE8" });
     const preview = contentEl.createDiv({ cls: "puffs-anno-modal-preview" });
     preview.textContent = this.defaultText;
     const input = contentEl.createEl("input", {
