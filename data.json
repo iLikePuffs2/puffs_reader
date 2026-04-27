@@ -6,21 +6,21 @@
     "firstLineIndent": 0,
     "contentWidth": 800,
     "letterSpacing": 0,
-    "paddingTop": 60,
-    "paddingBottom": 60,
+    "paddingTop": 80,
+    "paddingBottom": 80,
     "fontColor": "0,0,0",
     "backgroundColor": "233,216,188",
     "floatingButtonColor": "163,151,131",
     "chapterMetaFontSize": 16,
     "chapterMetaColor": "163,151,131",
-    "chapterMetaTop": 25,
+    "chapterMetaTop": 35,
     "progressMetaFontSize": 15,
     "progressMetaColor": "163,151,131",
-    "progressMetaBottom": 20,
+    "progressMetaBottom": 30,
     "sidebarWidth": 300,
     "sidebarTransitionMs": 0,
     "tocFontSize": 16,
-    "showProgress": true,
+    "showProgress": false,
     "removeExtraBlankLines": true,
     "cursorHideDelayMs": 500,
     "tocRegex": "^\\s*第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇].*$",
@@ -35,14 +35,14 @@
   },
   "progress": {
     "小说/书库/苟在初圣魔门当人材.txt": {
-      "paragraphIndex": 33629,
-      "charOffset": 25,
-      "lastRead": 1777279629788
+      "paragraphIndex": 34389,
+      "charOffset": 24,
+      "lastRead": 1777282443235
     },
     "小说/书库/锦衣夜行.txt": {
       "paragraphIndex": 29,
       "charOffset": 0,
-      "lastRead": 1777279584868
+      "lastRead": 1777282337556
     }
   },
   "bookSettings": {
@@ -344,6 +344,53 @@
           "endOffset": 19,
           "text": "思来想去，自然是重回圣宗更有性价比",
           "createdAt": 1777279064770
+        },
+        {
+          "paraIndex": 33943,
+          "startOffset": 2,
+          "length": 25,
+          "endParaIndex": 33943,
+          "endOffset": 27,
+          "text": "人的欲望如同高山滚石般，一旦开始，就再也停不下来了",
+          "note": "欲望",
+          "createdAt": 1777280471750
+        },
+        {
+          "paraIndex": 33996,
+          "startOffset": 23,
+          "length": 22,
+          "endParaIndex": 33996,
+          "endOffset": 45,
+          "text": "而是名副其实，和第二名有着断档级领先的第一人",
+          "createdAt": 1777280552944
+        },
+        {
+          "paraIndex": 34448,
+          "startOffset": 9,
+          "length": 28,
+          "endParaIndex": 34448,
+          "endOffset": 37,
+          "text": "可他应该还是那个扫地不伤蝼蚁命，可以随便欺负的老好人才对",
+          "note": "老实",
+          "createdAt": 1777281356013
+        },
+        {
+          "paraIndex": 34556,
+          "startOffset": 23,
+          "length": 22,
+          "endParaIndex": 34556,
+          "endOffset": 45,
+          "text": "此刻出现那叫一个大义凛然，居然连口号都想好了",
+          "createdAt": 1777281743959
+        },
+        {
+          "paraIndex": 34558,
+          "startOffset": 20,
+          "length": 25,
+          "endParaIndex": 34558,
+          "endOffset": 45,
+          "text": "但是再加上圣宗那可就不同了，顺带还可以帮他一起背锅",
+          "createdAt": 1777281759978
         }
       ]
     }

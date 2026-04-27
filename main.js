@@ -400,12 +400,12 @@ var ReaderView = class extends import_obsidian.ItemView {
       }
       lines = collapsed;
     }
-    lines = this.removeBlankLinesAfterChapter(lines);
+    lines = this.removeBlankLinesAroundChapter(lines);
     while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
     return lines;
   }
-  /** 章节标题后面的空行只会拉开章节名和正文第一段，这里直接清理掉。 */
-  removeBlankLinesAfterChapter(lines) {
+  /** 章节标题前后的空行只会制造章节过渡空白，这里直接清理掉。 */
+  removeBlankLinesAroundChapter(lines) {
     const tocRegexText = this.getEffectiveTocRegex();
     if (!tocRegexText) return lines;
     let tocRegex;
@@ -419,6 +419,9 @@ var ReaderView = class extends import_obsidian.ItemView {
     for (const line of lines) {
       const trimmed = line.trim();
       if (previousWasChapter && trimmed === "") continue;
+      if (trimmed !== "" && tocRegex.test(trimmed)) {
+        while (cleaned.length > 0 && cleaned[cleaned.length - 1].trim() === "") cleaned.pop();
+      }
       cleaned.push(line);
       previousWasChapter = trimmed !== "" && tocRegex.test(trimmed);
     }
@@ -438,7 +441,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       return;
     }
     this.isRenderingPage = true;
-    this.currentPageStart = this.clampPosition(this.currentPageStart);
+    this.currentPageStart = this.skipBlankPageStart(this.clampPosition(this.currentPageStart));
     this.currentPageEnd = this.measurePageEnd(this.currentPageStart);
     this.paintPage(this.currentPageStart, this.currentPageEnd);
     this.trimPaintedPageToFit();
@@ -449,10 +452,11 @@ var ReaderView = class extends import_obsidian.ItemView {
   /** 在真实容器内临时排版，找出当前页可以容纳到哪个字符位置。 */
   measurePageEnd(start) {
     this.contentContainer.empty();
-    let offset = start.charOffset;
-    let lastFit = start;
-    const chapterEndPara = this.getChapterEndPara(start.paraIndex);
-    for (let pi = start.paraIndex; pi < this.paragraphs.length; pi++) {
+    const normalizedStart = this.skipBlankPageStart(this.clampPosition(start));
+    let offset = normalizedStart.charOffset;
+    let lastFit = normalizedStart;
+    const chapterEndPara = this.getChapterEndPara(normalizedStart.paraIndex);
+    for (let pi = normalizedStart.paraIndex; pi < this.paragraphs.length; pi++) {
       if (chapterEndPara !== null && pi >= chapterEndPara) {
         return this.clampPosition({ paraIndex: chapterEndPara, charOffset: 0 });
       }
@@ -655,7 +659,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     if (this.comparePositions(this.currentPageEnd, this.currentPageStart) <= 0) return;
     if (this.currentPageEnd.paraIndex >= this.paragraphs.length) return;
     this.pageBackStack.push({ ...this.currentPageStart });
-    this.currentPageStart = this.clampPosition(this.currentPageEnd);
+    this.currentPageStart = this.skipBlankPageStart(this.clampPosition(this.currentPageEnd));
     this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
@@ -705,6 +709,13 @@ var ReaderView = class extends import_obsidian.ItemView {
     }
     if (paraIndex >= this.paragraphs.length) return { paraIndex: this.paragraphs.length, charOffset: 0 };
     return { paraIndex, charOffset: Math.min(charOffset, this.paragraphs[paraIndex].length) };
+  }
+  skipBlankPageStart(pos) {
+    let next = this.clampPosition(pos);
+    while (next.paraIndex < this.paragraphs.length && next.charOffset === 0 && this.paragraphs[next.paraIndex].trim() === "") {
+      next = this.clampPosition({ paraIndex: next.paraIndex + 1, charOffset: 0 });
+    }
+    return next;
   }
   comparePositions(a, b) {
     if (a.paraIndex !== b.paraIndex) return a.paraIndex - b.paraIndex;
