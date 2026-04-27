@@ -23,6 +23,8 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian3 = require("obsidian");
+var import_fs = require("fs");
+var import_path = require("path");
 
 // src/ReaderView.ts
 var import_obsidian = require("obsidian");
@@ -71,7 +73,9 @@ var DEFAULT_SETTINGS = {
   sidebarTitleFontSize: 16,
   annotationHighlightColor: "",
   annotationExportDir: "",
-  deleteAnnotationsAfterExport: true
+  deleteAnnotationsAfterExport: true,
+  dataBackupPath: "",
+  dataBackupFrequencyHours: 24
 };
 
 // src/ReaderView.ts
@@ -1727,6 +1731,14 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
         this.refreshOpenReaders();
       })
     );
+    containerEl.createEl("h3", { text: "\u6570\u636E\u5907\u4EFD" });
+    this.addTextSetting(
+      "\u5907\u4EFD\u8DEF\u5F84",
+      "data.json \u7684\u5907\u4EFD\u76EE\u5F55\u6216\u6587\u4EF6\u8DEF\u5F84\uFF1B\u652F\u6301 vault \u5185\u76F8\u5BF9\u8DEF\u5F84\u6216\u672C\u673A\u7EDD\u5BF9\u8DEF\u5F84\u3002\u7559\u7A7A\u5219\u5907\u4EFD\u5230\u63D2\u4EF6\u76EE\u5F55 data.backup.json\u3002",
+      "dataBackupPath",
+      ".obsidian/plugins/puffs-reader/data.backup.json"
+    );
+    this.addNumberSetting("\u5907\u4EFD\u9891\u7387", "\u6BCF\u9694\u591A\u5C11\u5C0F\u65F6\u81EA\u52A8\u8986\u76D6\u5907\u4EFD\u4E00\u6B21 data.json\u3002", "dataBackupFrequencyHours", 1, 720, 1, "\u5C0F\u65F6");
   }
   addNumberSetting(name, desc, key, min, max, step, unit) {
     let sliderControl = null;
@@ -1803,6 +1815,8 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     this.settings = DEFAULT_SETTINGS;
     this.progress = {};
     this.bookSettings = {};
+    this.lastDataBackupAt = 0;
+    this.dataBackupTimer = null;
   }
   async onload() {
     await this.loadPluginData();
@@ -1838,6 +1852,10 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
       })
     );
     this.addSettingTab(new SettingsTab(this.app, this));
+    this.scheduleNextDataBackup();
+  }
+  onunload() {
+    this.clearDataBackupTimer();
   }
   // ═══════════════════════════ 打开阅读器 ═══════════════════════════
   /**
@@ -1858,13 +1876,14 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
   }
   // ═══════════════════════════ 数据持久化 ═══════════════════════════
   async loadPluginData() {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const data = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data == null ? void 0 : data.settings);
     this.progress = (_a = data == null ? void 0 : data.progress) != null ? _a : {};
     this.bookSettings = (_b = data == null ? void 0 : data.bookSettings) != null ? _b : {};
+    this.lastDataBackupAt = (_c = data == null ? void 0 : data.lastDataBackupAt) != null ? _c : 0;
     for (const [filePath, progress] of Object.entries(this.progress)) {
-      if (progress.encoding && !((_c = this.bookSettings[filePath]) == null ? void 0 : _c.encoding)) {
+      if (progress.encoding && !((_d = this.bookSettings[filePath]) == null ? void 0 : _d.encoding)) {
         this.bookSettings[filePath] = {
           ...this.bookSettings[filePath],
           encoding: progress.encoding
@@ -1873,11 +1892,102 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     }
   }
   async savePluginData() {
+    await this.writePluginData();
+    await this.backupDataJsonIfDue();
+  }
+  async rescheduleDataBackup() {
+    this.scheduleNextDataBackup();
+    await this.backupDataJsonIfDue();
+  }
+  async writePluginData() {
     await this.saveData({
       settings: this.settings,
       progress: this.progress,
-      bookSettings: this.bookSettings
+      bookSettings: this.bookSettings,
+      lastDataBackupAt: this.lastDataBackupAt
     });
+  }
+  scheduleNextDataBackup() {
+    this.clearDataBackupTimer();
+    const frequencyMs = this.getDataBackupFrequencyMs();
+    if (frequencyMs <= 0) return;
+    const now = Date.now();
+    const elapsed = this.lastDataBackupAt > 0 ? now - this.lastDataBackupAt : frequencyMs;
+    const delay = Math.max(0, frequencyMs - elapsed);
+    this.dataBackupTimer = window.setTimeout(() => {
+      this.dataBackupTimer = null;
+      this.backupDataJsonIfDue().catch((error) => console.error("Puffs Reader data backup failed", error));
+    }, delay);
+  }
+  clearDataBackupTimer() {
+    if (this.dataBackupTimer === null) return;
+    window.clearTimeout(this.dataBackupTimer);
+    this.dataBackupTimer = null;
+  }
+  async backupDataJsonIfDue() {
+    const frequencyMs = this.getDataBackupFrequencyMs();
+    if (frequencyMs <= 0) return;
+    if (this.lastDataBackupAt > 0 && Date.now() - this.lastDataBackupAt < frequencyMs) {
+      this.scheduleNextDataBackup();
+      return;
+    }
+    await this.writePluginData();
+    await this.backupDataJson();
+    this.lastDataBackupAt = Date.now();
+    await this.writePluginData();
+    this.scheduleNextDataBackup();
+  }
+  getDataBackupFrequencyMs() {
+    const hours = Number(this.settings.dataBackupFrequencyHours);
+    if (!Number.isFinite(hours) || hours <= 0) return 0;
+    return hours * 60 * 60 * 1e3;
+  }
+  async backupDataJson() {
+    const sourcePath = (0, import_obsidian3.normalizePath)(`${this.getPluginDir()}/data.json`);
+    if (!await this.app.vault.adapter.exists(sourcePath)) {
+      await this.writePluginData();
+    }
+    const content = await this.app.vault.adapter.read(sourcePath);
+    const targetPath = this.getDataBackupPath();
+    if ((0, import_path.isAbsolute)(targetPath)) {
+      await import_fs.promises.mkdir((0, import_path.dirname)(targetPath), { recursive: true });
+      await import_fs.promises.writeFile(targetPath, content, "utf8");
+      return;
+    }
+    const normalizedTarget = (0, import_obsidian3.normalizePath)(targetPath);
+    const targetDir = normalizedTarget.split("/").slice(0, -1).join("/");
+    if (targetDir) await this.ensureVaultFolder(targetDir);
+    await this.app.vault.adapter.write(normalizedTarget, content);
+  }
+  async ensureVaultFolder(folderPath) {
+    const parts = (0, import_obsidian3.normalizePath)(folderPath).split("/").filter(Boolean);
+    let current = "";
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      if (!await this.app.vault.adapter.exists(current)) {
+        await this.app.vault.adapter.mkdir(current);
+      }
+    }
+  }
+  getDataBackupPath() {
+    const customPath = this.settings.dataBackupPath.trim();
+    if (customPath) {
+      if (this.isDataBackupDirectoryPath(customPath)) {
+        return (0, import_path.isAbsolute)(customPath) ? (0, import_path.join)(customPath, "data.json") : (0, import_obsidian3.normalizePath)(`${customPath}/data.json`);
+      }
+      return customPath;
+    }
+    return (0, import_obsidian3.normalizePath)(`${this.getPluginDir()}/data.backup.json`);
+  }
+  isDataBackupDirectoryPath(path) {
+    var _a;
+    if (/[\\/]$/.test(path)) return true;
+    const leaf = (_a = path.split(/[\\/]/).pop()) != null ? _a : "";
+    return !leaf.toLowerCase().endsWith(".json");
+  }
+  getPluginDir() {
+    var _a;
+    return (_a = this.manifest.dir) != null ? _a : `.obsidian/plugins/${this.manifest.id}`;
   }
   // ═══════════════════════════ 阅读进度 ═══════════════════════════
   getProgress(filePath) {

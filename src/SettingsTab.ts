@@ -129,6 +129,15 @@ export class SettingsTab extends PluginSettingTab {
           this.refreshOpenReaders();
         }),
       );
+
+    containerEl.createEl('h3', { text: '数据备份' });
+    this.addTextSetting(
+      '备份路径',
+      'data.json 的备份目录或文件路径；支持 vault 内相对路径或本机绝对路径。留空则备份到插件目录 data.backup.json。',
+      'dataBackupPath',
+      '.obsidian/plugins/puffs-reader/data.backup.json',
+    );
+    this.addNumberSetting('备份频率', '每隔多少小时自动覆盖备份一次 data.json。', 'dataBackupFrequencyHours', 1, 720, 1, '小时');
   }
 
   private addNumberSetting(
@@ -187,7 +196,7 @@ export class SettingsTab extends PluginSettingTab {
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationExportDir',
+    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationExportDir' | 'dataBackupPath',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)

@@ -1,4 +1,6 @@
-import { Plugin, TFile, FuzzySuggestModal, WorkspaceLeaf } from 'obsidian';
+import { Plugin, TFile, FuzzySuggestModal, WorkspaceLeaf, normalizePath } from 'obsidian';
+import { promises as fs } from 'fs';
+import { dirname, isAbsolute, join } from 'path';
 import { ReaderView, READER_VIEW_TYPE } from './ReaderView';
 import { SettingsTab } from './SettingsTab';
 import { ReaderSettings, BookProgress, BookSettings, DEFAULT_SETTINGS } from './types';
@@ -8,6 +10,7 @@ interface PluginData {
   settings: ReaderSettings;
   progress: Record<string, BookProgress>;
   bookSettings?: Record<string, BookSettings>;
+  lastDataBackupAt?: number;
 }
 
 /**
@@ -47,6 +50,8 @@ export default class PuffsReaderPlugin extends Plugin {
   settings: ReaderSettings = DEFAULT_SETTINGS;
   progress: Record<string, BookProgress> = {};
   bookSettings: Record<string, BookSettings> = {};
+  lastDataBackupAt = 0;
+  private dataBackupTimer: number | null = null;
 
   async onload(): Promise<void> {
     await this.loadPluginData();
@@ -96,6 +101,11 @@ export default class PuffsReaderPlugin extends Plugin {
 
     // ── 设置面板 ──
     this.addSettingTab(new SettingsTab(this.app, this));
+    this.scheduleNextDataBackup();
+  }
+
+  onunload(): void {
+    this.clearDataBackupTimer();
   }
 
   // ═══════════════════════════ 打开阅读器 ═══════════════════════════
@@ -124,6 +134,7 @@ export default class PuffsReaderPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.settings);
     this.progress = data?.progress ?? {};
     this.bookSettings = data?.bookSettings ?? {};
+    this.lastDataBackupAt = data?.lastDataBackupAt ?? 0;
 
     // 旧版本把编码覆写存在 progress 中；这里保留读取兼容，同时迁移到单书设置。
     for (const [filePath, progress] of Object.entries(this.progress)) {
@@ -137,11 +148,112 @@ export default class PuffsReaderPlugin extends Plugin {
   }
 
   async savePluginData(): Promise<void> {
+    await this.writePluginData();
+    await this.backupDataJsonIfDue();
+  }
+
+  async rescheduleDataBackup(): Promise<void> {
+    this.scheduleNextDataBackup();
+    await this.backupDataJsonIfDue();
+  }
+
+  private async writePluginData(): Promise<void> {
     await this.saveData({
       settings: this.settings,
       progress: this.progress,
       bookSettings: this.bookSettings,
+      lastDataBackupAt: this.lastDataBackupAt,
     } as PluginData);
+  }
+
+  private scheduleNextDataBackup(): void {
+    this.clearDataBackupTimer();
+    const frequencyMs = this.getDataBackupFrequencyMs();
+    if (frequencyMs <= 0) return;
+    const now = Date.now();
+    const elapsed = this.lastDataBackupAt > 0 ? now - this.lastDataBackupAt : frequencyMs;
+    const delay = Math.max(0, frequencyMs - elapsed);
+    this.dataBackupTimer = window.setTimeout(() => {
+      this.dataBackupTimer = null;
+      this.backupDataJsonIfDue().catch((error) => console.error('Puffs Reader data backup failed', error));
+    }, delay);
+  }
+
+  private clearDataBackupTimer(): void {
+    if (this.dataBackupTimer === null) return;
+    window.clearTimeout(this.dataBackupTimer);
+    this.dataBackupTimer = null;
+  }
+
+  private async backupDataJsonIfDue(): Promise<void> {
+    const frequencyMs = this.getDataBackupFrequencyMs();
+    if (frequencyMs <= 0) return;
+    if (this.lastDataBackupAt > 0 && Date.now() - this.lastDataBackupAt < frequencyMs) {
+      this.scheduleNextDataBackup();
+      return;
+    }
+
+    await this.writePluginData();
+    await this.backupDataJson();
+    this.lastDataBackupAt = Date.now();
+    await this.writePluginData();
+    this.scheduleNextDataBackup();
+  }
+
+  private getDataBackupFrequencyMs(): number {
+    const hours = Number(this.settings.dataBackupFrequencyHours);
+    if (!Number.isFinite(hours) || hours <= 0) return 0;
+    return hours * 60 * 60 * 1000;
+  }
+
+  private async backupDataJson(): Promise<void> {
+    const sourcePath = normalizePath(`${this.getPluginDir()}/data.json`);
+    if (!(await this.app.vault.adapter.exists(sourcePath))) {
+      await this.writePluginData();
+    }
+    const content = await this.app.vault.adapter.read(sourcePath);
+    const targetPath = this.getDataBackupPath();
+    if (isAbsolute(targetPath)) {
+      await fs.mkdir(dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, content, 'utf8');
+      return;
+    }
+    const normalizedTarget = normalizePath(targetPath);
+    const targetDir = normalizedTarget.split('/').slice(0, -1).join('/');
+    if (targetDir) await this.ensureVaultFolder(targetDir);
+    await this.app.vault.adapter.write(normalizedTarget, content);
+  }
+
+  private async ensureVaultFolder(folderPath: string): Promise<void> {
+    const parts = normalizePath(folderPath).split('/').filter(Boolean);
+    let current = '';
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      if (!(await this.app.vault.adapter.exists(current))) {
+        await this.app.vault.adapter.mkdir(current);
+      }
+    }
+  }
+
+  private getDataBackupPath(): string {
+    const customPath = this.settings.dataBackupPath.trim();
+    if (customPath) {
+      if (this.isDataBackupDirectoryPath(customPath)) {
+        return isAbsolute(customPath) ? join(customPath, 'data.json') : normalizePath(`${customPath}/data.json`);
+      }
+      return customPath;
+    }
+    return normalizePath(`${this.getPluginDir()}/data.backup.json`);
+  }
+
+  private isDataBackupDirectoryPath(path: string): boolean {
+    if (/[\\/]$/.test(path)) return true;
+    const leaf = path.split(/[\\/]/).pop() ?? '';
+    return !leaf.toLowerCase().endsWith('.json');
+  }
+
+  private getPluginDir(): string {
+    return this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`;
   }
 
   // ═══════════════════════════ 阅读进度 ═══════════════════════════

@@ -7,7 +7,7 @@ const prod = process.argv[2] === "production";
 const context = await esbuild.context({
   entryPoints: ["src/main.ts"],
   bundle: true,
-  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*"],
+  external: ["obsidian", "electron", "fs", "path", "@codemirror/*", "@lezer/*"],
   format: "cjs",
   target: "es2018",
   logLevel: "info",

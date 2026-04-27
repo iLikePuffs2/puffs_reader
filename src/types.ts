@@ -62,6 +62,10 @@ export interface ReaderSettings {
   annotationExportDir: string;
   /** 导出 Markdown 成功后是否删除当前书对应的标注/批注 */
   deleteAnnotationsAfterExport: boolean;
+  /** data.json 备份路径；留空则备份到插件目录 data.backup.json */
+  dataBackupPath: string;
+  /** data.json 自动备份频率（小时） */
+  dataBackupFrequencyHours: number;
 }
 
 /** 一条标注或批注 */
@@ -180,4 +184,6 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   annotationHighlightColor: '',
   annotationExportDir: '',
   deleteAnnotationsAfterExport: true,
+  dataBackupPath: '',
+  dataBackupFrequencyHours: 24,
 };
