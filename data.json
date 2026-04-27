@@ -2,7 +2,7 @@
   "settings": {
     "fontSize": 30,
     "lineHeight": 1.7,
-    "paragraphSpacing": 12,
+    "paragraphSpacing": 10,
     "firstLineIndent": 0,
     "contentWidth": 800,
     "letterSpacing": 0,
@@ -11,9 +11,9 @@
     "fontColor": "0,0,0",
     "backgroundColor": "233,216,188",
     "floatingButtonColor": "163,151,131",
-    "chapterMetaFontSize": 15,
+    "chapterMetaFontSize": 16,
     "chapterMetaColor": "163,151,131",
-    "chapterMetaTop": 20,
+    "chapterMetaTop": 25,
     "progressMetaFontSize": 15,
     "progressMetaColor": "163,151,131",
     "progressMetaBottom": 20,
@@ -22,20 +22,27 @@
     "tocFontSize": 16,
     "showProgress": true,
     "removeExtraBlankLines": true,
+    "cursorHideDelayMs": 500,
     "tocRegex": "^\\s*第[零一二三四五六七八九十百千万亿\\d]+[章节回卷集部篇].*$",
     "defaultEncoding": "utf-8",
-    "searchHotkey": "Ctrl+F"
+    "searchHotkey": "Ctrl+F",
+    "tocPanelHotkey": "Ctrl+B",
+    "sidebarTitleFontSize": 16,
+    "annotationHighlightColor": "187,194,193",
+    "annotationExportDir": "小说/书库",
+    "deleteAnnotationsAfterExport": true,
+    "annotationFirstCharColor": "0,0,0"
   },
   "progress": {
     "小说/书库/苟在初圣魔门当人材.txt": {
-      "paragraphIndex": 30074,
-      "charOffset": 0,
-      "lastRead": 1777018835359
+      "paragraphIndex": 33629,
+      "charOffset": 25,
+      "lastRead": 1777279629788
     },
     "小说/书库/锦衣夜行.txt": {
-      "paragraphIndex": 2144,
+      "paragraphIndex": 29,
       "charOffset": 0,
-      "lastRead": 1777018742206
+      "lastRead": 1777279584868
     }
   },
   "bookSettings": {
@@ -43,7 +50,302 @@
       "encoding": "gbk"
     },
     "小说/书库/苟在初圣魔门当人材.txt": {
-      "encoding": "utf-8"
+      "encoding": "utf-8",
+      "annotations": [
+        {
+          "paraIndex": 30885,
+          "startOffset": 2,
+          "length": 14,
+          "endParaIndex": 30885,
+          "endOffset": 16,
+          "text": "任你千般幻术，我自一剑斩杀！",
+          "note": "霸道",
+          "createdAt": 1777268304808
+        },
+        {
+          "paraIndex": 31013,
+          "startOffset": 2,
+          "length": 20,
+          "endParaIndex": 31013,
+          "endOffset": 22,
+          "text": "事到如今，正好给七曜天带来一点圣宗震撼！",
+          "createdAt": 1777268428642
+        },
+        {
+          "paraIndex": 31039,
+          "startOffset": 2,
+          "length": 19,
+          "endParaIndex": 31039,
+          "endOffset": 21,
+          "text": "“这是.....在褫夺我白莲教的根基！",
+          "note": "抢夺",
+          "createdAt": 1777268459622
+        },
+        {
+          "paraIndex": 31052,
+          "startOffset": 12,
+          "length": 31,
+          "endParaIndex": 31052,
+          "endOffset": 43,
+          "text": "信众之中，我等每年都会筛选最虔诚之人，送入真空家乡享受天下极乐",
+          "note": "教派",
+          "createdAt": 1777268491131
+        },
+        {
+          "paraIndex": 31083,
+          "startOffset": 12,
+          "length": 31,
+          "endParaIndex": 31083,
+          "endOffset": 43,
+          "text": "都是在讲述白莲教义，然后呈现真空家乡的美好，给教众信徒们打鸡血",
+          "createdAt": 1777268541210
+        },
+        {
+          "paraIndex": 31304,
+          "startOffset": 20,
+          "length": 18,
+          "endParaIndex": 31304,
+          "endOffset": 38,
+          "text": "而是默默地看着，任由云家老祖本色出演",
+          "createdAt": 1777268981953
+        },
+        {
+          "paraIndex": 31429,
+          "startOffset": 24,
+          "length": 21,
+          "endParaIndex": 31429,
+          "endOffset": 45,
+          "text": "和这破地方比起来，七曜天简直是纯良的不像话",
+          "note": "善良",
+          "createdAt": 1777269188211
+        },
+        {
+          "paraIndex": 31513,
+          "startOffset": 3,
+          "length": 25,
+          "endParaIndex": 31513,
+          "endOffset": 28,
+          "text": "重光师叔说，人一定要靠自己，但我却觉得，人力有时穷",
+          "note": "无奈",
+          "createdAt": 1777269287086
+        },
+        {
+          "paraIndex": 31523,
+          "startOffset": 10,
+          "length": 32,
+          "endParaIndex": 31524,
+          "endOffset": 9,
+          "text": "包括香火神道的源头，七曜天的果位雏形他也要！\n　　全部打包带走！",
+          "createdAt": 1777269378546
+        },
+        {
+          "paraIndex": 31815,
+          "startOffset": 2,
+          "length": 29,
+          "endParaIndex": 31815,
+          "endOffset": 31,
+          "text": "奈何即便有两尊筑基圆满的香火大神的挡枪，天罚依旧是势不可挡",
+          "createdAt": 1777269641904
+        },
+        {
+          "paraIndex": 31940,
+          "startOffset": 2,
+          "length": 21,
+          "endParaIndex": 31940,
+          "endOffset": 23,
+          "text": "不管怎么看，此刻他的生命都已如同风中残烛。",
+          "note": "虚弱",
+          "createdAt": 1777269784620
+        },
+        {
+          "paraIndex": 32005,
+          "startOffset": 25,
+          "length": 20,
+          "endParaIndex": 32005,
+          "endOffset": 45,
+          "text": "逆斩了刚刚转世的鸿运，这才是我的第一桶金",
+          "createdAt": 1777269941663
+        },
+        {
+          "paraIndex": 32015,
+          "startOffset": 19,
+          "length": 26,
+          "endParaIndex": 32015,
+          "endOffset": 45,
+          "text": "我法外开恩，就不抽魂炼魄折磨你们了，让你们魂飞魄散吧",
+          "note": "折磨",
+          "createdAt": 1777269986692
+        },
+        {
+          "paraIndex": 32052,
+          "startOffset": 3,
+          "length": 20,
+          "endParaIndex": 32052,
+          "endOffset": 23,
+          "text": "换而言之，现在的我在破地方就是一个香饽饽",
+          "note": "重视",
+          "createdAt": 1777270053300
+        },
+        {
+          "paraIndex": 32180,
+          "startOffset": 2,
+          "length": 15,
+          "endParaIndex": 32180,
+          "endOffset": 17,
+          "text": "神通加持下，吕阳堪称人形地脉。",
+          "createdAt": 1777271679071
+        },
+        {
+          "paraIndex": 32369,
+          "startOffset": 2,
+          "length": 18,
+          "endParaIndex": 32369,
+          "endOffset": 20,
+          "text": "一时间，索唤是怒从心头起，恶向胆边生",
+          "note": "愤怒",
+          "createdAt": 1777271947698
+        },
+        {
+          "paraIndex": 32470,
+          "startOffset": 2,
+          "length": 19,
+          "endParaIndex": 32470,
+          "endOffset": 21,
+          "text": "只可惜如今诸真君隐世，这些韭菜没人收割",
+          "createdAt": 1777272985757
+        },
+        {
+          "paraIndex": 32592,
+          "startOffset": 3,
+          "length": 31,
+          "endParaIndex": 32592,
+          "endOffset": 34,
+          "text": "不过这种真法往往需要量身定制，必须和金性所指向的果位匹配才能用",
+          "note": "特别",
+          "createdAt": 1777273139340
+        },
+        {
+          "paraIndex": 32609,
+          "startOffset": 19,
+          "length": 26,
+          "endParaIndex": 32609,
+          "endOffset": 45,
+          "text": "可这还是他第一次遇到如此恶心的神通，突出一个不当人子",
+          "note": "无耻",
+          "createdAt": 1777273161129
+        },
+        {
+          "paraIndex": 32739,
+          "startOffset": 2,
+          "length": 17,
+          "endParaIndex": 32739,
+          "endOffset": 19,
+          "text": "索唤心中清楚，吕阳这就是给他画大饼",
+          "createdAt": 1777273271964
+        },
+        {
+          "paraIndex": 32913,
+          "startOffset": 15,
+          "length": 26,
+          "endParaIndex": 32913,
+          "endOffset": 41,
+          "text": "真龙血裔完全就是天生仙灵的低配版，凭什么能是金色天赋",
+          "createdAt": 1777273545597
+        },
+        {
+          "paraIndex": 32930,
+          "startOffset": 2,
+          "length": 47,
+          "endParaIndex": 32931,
+          "endOffset": 42,
+          "text": "狗大户！\n　　吕阳一边在心里痛斥这种靠资源修仙的无耻行径，一边将所有天一真水收进了离恨天之中。",
+          "createdAt": 1777273572502
+        },
+        {
+          "paraIndex": 32965,
+          "startOffset": 7,
+          "length": 45,
+          "endParaIndex": 32966,
+          "endOffset": 7,
+          "text": "吕阳当即大手一挥，将箱中的灵材全部收入离恨天，当然，箱子本身他也没有放过。\n　　我全都要！",
+          "createdAt": 1777273615726
+        },
+        {
+          "paraIndex": 32980,
+          "startOffset": 2,
+          "length": 146,
+          "endParaIndex": 32984,
+          "endOffset": 13,
+          "text": "很快，吕阳将空了的右边书架也拆掉收了起来。\n　　“这宝库这么大，能放这么多好东西，可见其本身也是一个宝贝.....把地面挖了，天花板也卸下来！”\n　　他不是一个贪心的人。\n　　主要是觉得宝库都被他搬空了，等龙君回来看到了肯定很伤心，所以干脆把宝库搬走，眼不见为净。\n　　欸，我可真是个大善人！",
+          "createdAt": 1777273642237
+        },
+        {
+          "paraIndex": 32990,
+          "startOffset": 14,
+          "length": 32,
+          "endParaIndex": 32990,
+          "endOffset": 46,
+          "text": "手脚这么不干净，跟谁学的？让别人知道了还以为我们是来刮地皮的呢！",
+          "note": "贪婪",
+          "createdAt": 1777273660065
+        },
+        {
+          "paraIndex": 32995,
+          "startOffset": 3,
+          "length": 24,
+          "endParaIndex": 32996,
+          "endOffset": 10,
+          "text": "原来是嫌弃我不够专业啊。’\n　　是自己格局小了！",
+          "createdAt": 1777274070131
+        },
+        {
+          "paraIndex": 33236,
+          "startOffset": 7,
+          "length": 10,
+          "endParaIndex": 33236,
+          "endOffset": 17,
+          "text": "免费的东西才是最贵的",
+          "note": "不信任",
+          "createdAt": 1777274599485
+        },
+        {
+          "paraIndex": 33238,
+          "startOffset": 2,
+          "length": 21,
+          "endParaIndex": 33238,
+          "endOffset": 23,
+          "text": "此刻，索唤心中只有一个念头：他太想进步了！",
+          "createdAt": 1777274612108
+        },
+        {
+          "paraIndex": 33347,
+          "startOffset": 2,
+          "length": 20,
+          "endParaIndex": 33347,
+          "endOffset": 22,
+          "text": "放在筑基真人之中，每一样都是顶配中的顶配",
+          "createdAt": 1777274736032
+        },
+        {
+          "paraIndex": 33425,
+          "startOffset": 2,
+          "length": 17,
+          "endParaIndex": 33425,
+          "endOffset": 19,
+          "text": "无论净土怎么“辟谣”，始终没人相信",
+          "note": "解释",
+          "createdAt": 1777274806557
+        },
+        {
+          "paraIndex": 33521,
+          "startOffset": 2,
+          "length": 17,
+          "endParaIndex": 33521,
+          "endOffset": 19,
+          "text": "思来想去，自然是重回圣宗更有性价比",
+          "createdAt": 1777279064770
+        }
+      ]
     }
   }
 }

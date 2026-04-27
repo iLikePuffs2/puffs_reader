@@ -63,6 +63,7 @@ var DEFAULT_SETTINGS = {
   tocFontSize: 13,
   showProgress: true,
   removeExtraBlankLines: true,
+  cursorHideDelayMs: 2e3,
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: "utf-8",
   searchHotkey: "Ctrl+F",
@@ -97,8 +98,10 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.isRenderingPage = false;
     this.progressSaveTimer = 0;
     this.searchTimer = 0;
+    this.cursorHideTimer = 0;
     this.resizeObserver = null;
     this.boundGlobalKeydown = null;
+    this.boundMouseMove = null;
     this.spaceHoldTimer = 0;
     this.spaceHoldFired = false;
     this.spacePressedSelection = null;
@@ -128,11 +131,16 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.saveProgressNow();
     window.clearTimeout(this.progressSaveTimer);
     window.clearTimeout(this.searchTimer);
+    this.clearCursorHideTimer();
     (_a = this.resizeObserver) == null ? void 0 : _a.disconnect();
     if (this.boundGlobalKeydown) {
       document.removeEventListener("keydown", this.boundGlobalKeydown, true);
       window.removeEventListener("keydown", this.boundGlobalKeydown, true);
       this.boundGlobalKeydown = null;
+    }
+    if (this.boundMouseMove) {
+      document.removeEventListener("mousemove", this.boundMouseMove, true);
+      this.boundMouseMove = null;
     }
   }
   getState() {
@@ -169,6 +177,7 @@ var ReaderView = class extends import_obsidian.ItemView {
   /** 全局设置面板保存后调用，让已打开阅读器立即使用新排版。 */
   refreshSettingsFromGlobal() {
     this.applyTypography();
+    this.resetCursorIdleState();
     this.renderCurrentPage();
   }
   /** 供外部打开/切换书籍后调用，把键盘焦点稳定交给阅读区。 */
@@ -186,13 +195,19 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.buildTypographyPanel();
     this.bindWorkspaceFocusEvents();
     this.bindGlobalKeys();
+    this.bindCursorAutoHide();
     this.applyTypography();
+    this.resetCursorIdleState();
   }
   bindWorkspaceFocusEvents() {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         if (leaf === this.leaf) {
           this.focusReader();
+          this.resetCursorIdleState();
+        } else {
+          this.showCursor();
+          this.clearCursorHideTimer();
         }
       })
     );
@@ -1163,6 +1178,35 @@ var ReaderView = class extends import_obsidian.ItemView {
     document.addEventListener("keydown", this.boundGlobalKeydown, true);
     window.addEventListener("keydown", this.boundGlobalKeydown, true);
   }
+  bindCursorAutoHide() {
+    this.boundMouseMove = () => {
+      if (!this.contentEl.isConnected) return;
+      this.resetCursorIdleState();
+    };
+    document.addEventListener("mousemove", this.boundMouseMove, true);
+  }
+  resetCursorIdleState() {
+    this.showCursor();
+    this.clearCursorHideTimer();
+    if (!this.shouldAutoHideCursor()) return;
+    this.cursorHideTimer = window.setTimeout(() => {
+      var _a;
+      if (this.shouldAutoHideCursor()) {
+        (_a = this.rootEl) == null ? void 0 : _a.classList.add("puffs-cursor-hidden");
+      }
+    }, this.plugin.settings.cursorHideDelayMs);
+  }
+  shouldAutoHideCursor() {
+    return this.app.workspace.activeLeaf === this.leaf && this.contentEl.isConnected && this.plugin.settings.cursorHideDelayMs > 0;
+  }
+  showCursor() {
+    var _a;
+    (_a = this.rootEl) == null ? void 0 : _a.classList.remove("puffs-cursor-hidden");
+  }
+  clearCursorHideTimer() {
+    window.clearTimeout(this.cursorHideTimer);
+    this.cursorHideTimer = 0;
+  }
   matchesHotkey(e, raw) {
     const parts = raw.split("+").map((p) => p.trim().toLowerCase()).filter(Boolean);
     const key = parts.find((p) => !["ctrl", "control", "cmd", "meta", "alt", "shift"].includes(p));
@@ -1628,6 +1672,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
         this.refreshOpenReaders();
       })
     );
+    this.addNumberSetting("\u9F20\u6807\u9690\u85CF\u5EF6\u8FDF", "\u9605\u8BFB\u5668\u6807\u7B7E\u9875\u6FC0\u6D3B\u65F6\uFF0C\u9F20\u6807\u9759\u6B62\u591A\u4E45\u540E\u9690\u85CF\u5149\u6807\u3002\u8BBE\u4E3A 0 \u5219\u4E0D\u81EA\u52A8\u9690\u85CF\u3002", "cursorHideDelayMs", 0, 1e4, 100, "ms");
     containerEl.createEl("h3", { text: "\u76EE\u5F55\u4E0E\u7F16\u7801" });
     this.addTextSetting("\u76EE\u5F55\u5339\u914D\u6B63\u5219", "\u6240\u6709\u4E66\u7C4D\u9ED8\u8BA4\u7AE0\u8282\u5339\u914D\u6B63\u5219\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "tocRegex", DEFAULT_SETTINGS.tocRegex);
     new import_obsidian2.Setting(containerEl).setName("\u9ED8\u8BA4\u7F16\u7801").setDesc("\u6253\u5F00\u6587\u4EF6\u65F6\u7684\u9ED8\u8BA4\u7F16\u7801\uFF08\u81EA\u52A8\u68C0\u6D4B\u5931\u8D25\u65F6\u4F7F\u7528\uFF09").addDropdown(

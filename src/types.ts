@@ -44,6 +44,8 @@ export interface ReaderSettings {
   showProgress: boolean;
   /** 是否去除多余空行 */
   removeExtraBlankLines: boolean;
+  /** 阅读器激活时鼠标静止多久后隐藏光标 (ms)，0 表示不隐藏 */
+  cursorHideDelayMs: number;
   /** 全局目录匹配正则，单书设置可以覆写 */
   tocRegex: string;
   /** 默认编码 */
@@ -169,6 +171,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   tocFontSize: 13,
   showProgress: true,
   removeExtraBlankLines: true,
+  cursorHideDelayMs: 2000,
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: 'utf-8',
   searchHotkey: 'Ctrl+F',

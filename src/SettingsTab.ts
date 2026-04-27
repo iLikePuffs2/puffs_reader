@@ -67,6 +67,8 @@ export class SettingsTab extends PluginSettingTab {
         }),
       );
 
+    this.addNumberSetting('鼠标隐藏延迟', '阅读器标签页激活时，鼠标静止多久后隐藏光标。设为 0 则不自动隐藏。', 'cursorHideDelayMs', 0, 10000, 100, 'ms');
+
     containerEl.createEl('h3', { text: '目录与编码' });
     this.addTextSetting('目录匹配正则', '所有书籍默认章节匹配正则；单书设置可覆写。', 'tocRegex', DEFAULT_SETTINGS.tocRegex);
 

@@ -47,6 +47,11 @@
   font-family: var(--font-text);
 }
 
+.puffs-cursor-hidden,
+.puffs-cursor-hidden * {
+  cursor: none !important;
+}
+
 .puffs-body {
   display: flex;
   width: 100%;

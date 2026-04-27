@@ -74,8 +74,10 @@ export class ReaderView extends ItemView {
 
   private progressSaveTimer = 0;
   private searchTimer = 0;
+  private cursorHideTimer = 0;
   private resizeObserver: ResizeObserver | null = null;
   private boundGlobalKeydown: ((e: KeyboardEvent) => void) | null = null;
+  private boundMouseMove: ((e: MouseEvent) => void) | null = null;
 
   private spaceHoldTimer = 0;
   private spaceHoldFired = false;
@@ -112,11 +114,16 @@ export class ReaderView extends ItemView {
     this.saveProgressNow();
     window.clearTimeout(this.progressSaveTimer);
     window.clearTimeout(this.searchTimer);
+    this.clearCursorHideTimer();
     this.resizeObserver?.disconnect();
     if (this.boundGlobalKeydown) {
       document.removeEventListener('keydown', this.boundGlobalKeydown, true);
       window.removeEventListener('keydown', this.boundGlobalKeydown, true);
       this.boundGlobalKeydown = null;
+    }
+    if (this.boundMouseMove) {
+      document.removeEventListener('mousemove', this.boundMouseMove, true);
+      this.boundMouseMove = null;
     }
   }
 
@@ -158,6 +165,7 @@ export class ReaderView extends ItemView {
   /** 全局设置面板保存后调用，让已打开阅读器立即使用新排版。 */
   refreshSettingsFromGlobal(): void {
     this.applyTypography();
+    this.resetCursorIdleState();
     this.renderCurrentPage();
   }
 
@@ -179,7 +187,9 @@ export class ReaderView extends ItemView {
     this.buildTypographyPanel();
     this.bindWorkspaceFocusEvents();
     this.bindGlobalKeys();
+    this.bindCursorAutoHide();
     this.applyTypography();
+    this.resetCursorIdleState();
   }
 
   private bindWorkspaceFocusEvents(): void {
@@ -187,6 +197,10 @@ export class ReaderView extends ItemView {
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf === this.leaf) {
           this.focusReader();
+          this.resetCursorIdleState();
+        } else {
+          this.showCursor();
+          this.clearCursorHideTimer();
         }
       }),
     );
@@ -1311,6 +1325,43 @@ export class ReaderView extends ItemView {
     };
     document.addEventListener('keydown', this.boundGlobalKeydown, true);
     window.addEventListener('keydown', this.boundGlobalKeydown, true);
+  }
+
+  private bindCursorAutoHide(): void {
+    this.boundMouseMove = () => {
+      if (!this.contentEl.isConnected) return;
+      this.resetCursorIdleState();
+    };
+    document.addEventListener('mousemove', this.boundMouseMove, true);
+  }
+
+  private resetCursorIdleState(): void {
+    this.showCursor();
+    this.clearCursorHideTimer();
+    if (!this.shouldAutoHideCursor()) return;
+
+    this.cursorHideTimer = window.setTimeout(() => {
+      if (this.shouldAutoHideCursor()) {
+        this.rootEl?.classList.add('puffs-cursor-hidden');
+      }
+    }, this.plugin.settings.cursorHideDelayMs);
+  }
+
+  private shouldAutoHideCursor(): boolean {
+    return (
+      this.app.workspace.activeLeaf === this.leaf &&
+      this.contentEl.isConnected &&
+      this.plugin.settings.cursorHideDelayMs > 0
+    );
+  }
+
+  private showCursor(): void {
+    this.rootEl?.classList.remove('puffs-cursor-hidden');
+  }
+
+  private clearCursorHideTimer(): void {
+    window.clearTimeout(this.cursorHideTimer);
+    this.cursorHideTimer = 0;
   }
 
   private matchesHotkey(e: KeyboardEvent, raw: string): boolean {
