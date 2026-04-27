@@ -69,7 +69,6 @@ var DEFAULT_SETTINGS = {
   tocPanelHotkey: "Ctrl+B",
   sidebarTitleFontSize: 16,
   annotationHighlightColor: "",
-  annotationFirstCharColor: "255,140,0",
   annotationExportDir: "",
   deleteAnnotationsAfterExport: true
 };
@@ -519,14 +518,12 @@ var ReaderView = class extends import_obsidian.ItemView {
       const localStart = Math.max(leadingPlainEnd, segment.startOffset - charOffset);
       const localEnd = Math.min(text.length, segment.endOffset - charOffset);
       if (localEnd <= localStart) continue;
-      const firstDecoratedOffset = this.getAnnotationFirstDecoratedOffset(a);
       tokens.push({
         start: localStart,
         end: localEnd,
         kind: "anno",
         annoIdx: idx,
-        hasNote: !!a.note,
-        hasNoteFirstChar: !!a.note && paraIndex === a.paraIndex && charOffset + localStart === firstDecoratedOffset
+        hasNote: !!a.note
       });
     }
     for (const m of searches) {
@@ -547,13 +544,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       } else {
         const cls = t.hasNote ? "puffs-annotation puffs-has-note" : "puffs-annotation";
         const idxAttr = t.annoIdx !== void 0 ? ` data-anno-idx="${t.annoIdx}"` : "";
-        if (t.hasNoteFirstChar && inner.length > 0) {
-          const first = this.escapeHTML(inner.slice(0, 1));
-          const rest = this.escapeHTML(inner.slice(1));
-          result += `<span class="${cls}"${idxAttr}><span class="puffs-anno-first">${first}</span>${rest}</span>`;
-        } else {
-          result += `<span class="${cls}"${idxAttr}>${this.escapeHTML(inner)}</span>`;
-        }
+        result += `<span class="${cls}"${idxAttr}>${this.escapeHTML(inner)}</span>`;
       }
       cursor = t.end;
     }
@@ -1052,9 +1043,6 @@ var ReaderView = class extends import_obsidian.ItemView {
     const annoBg = s.annotationHighlightColor ? `rgba(${s.annotationHighlightColor},0.42)` : "";
     if (annoBg) this.rootEl.style.setProperty("--puffs-anno-bg", annoBg);
     else this.rootEl.style.removeProperty("--puffs-anno-bg");
-    const annoFirst = s.annotationFirstCharColor ? `rgb(${s.annotationFirstCharColor})` : "";
-    if (annoFirst) this.rootEl.style.setProperty("--puffs-anno-first-color", annoFirst);
-    else this.rootEl.style.removeProperty("--puffs-anno-first-color");
     if (chapterColor) this.rootEl.style.setProperty("--puffs-chapter-meta-color", chapterColor);
     else this.rootEl.style.removeProperty("--puffs-chapter-meta-color");
     if (progressColor) this.rootEl.style.setProperty("--puffs-progress-meta-color", progressColor);
@@ -1341,12 +1329,6 @@ var ReaderView = class extends import_obsidian.ItemView {
       paraIndex: annotation.paraIndex,
       charOffset: annotation.startOffset + annotation.length
     };
-  }
-  getAnnotationFirstDecoratedOffset(annotation) {
-    var _a, _b, _c;
-    const paragraph = (_a = this.paragraphs[annotation.paraIndex]) != null ? _a : "";
-    const leadingLength = (_c = (_b = paragraph.match(/^[\s\u3000]+/)) == null ? void 0 : _b[0].length) != null ? _c : 0;
-    return Math.max(annotation.startOffset, leadingLength);
   }
   getAnnotationSegment(annotation, paraIndex) {
     var _a, _b;
@@ -1678,12 +1660,6 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       "RGB \u683C\u5F0F\uFF0C\u5982 255,200,50\u3002\u7559\u7A7A\u5219\u8DDF\u968F\u6D4F\u89C8\u5668\u9009\u533A\u8272\u3002",
       "annotationHighlightColor",
       "\u4F8B\u5982 255,200,50"
-    );
-    this.addTextSetting(
-      "\u6279\u6CE8\u9996\u5B57\u989C\u8272",
-      "RGB \u683C\u5F0F\uFF1B\u6279\u6CE8\u9996\u5B57\u7B26\u4F1A\u7528\u6B64\u989C\u8272\u7A81\u51FA\u663E\u793A\u3002",
-      "annotationFirstCharColor",
-      "\u4F8B\u5982 255,140,0"
     );
     this.addTextSetting(
       "\u5BFC\u51FA\u76EE\u5F55",

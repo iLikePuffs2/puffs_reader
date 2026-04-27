@@ -472,11 +472,6 @@
   cursor: pointer;
 }
 
-.puffs-anno-first {
-  color: var(--puffs-anno-first-color, #ff8c00);
-  font-weight: 600;
-}
-
 .puffs-anno-modal .modal-close-button,
 .puffs-anno-modal .modal-header {
   display: none !important;

@@ -111,12 +111,6 @@ export class SettingsTab extends PluginSettingTab {
       '例如 255,200,50',
     );
     this.addTextSetting(
-      '批注首字颜色',
-      'RGB 格式；批注首字符会用此颜色突出显示。',
-      'annotationFirstCharColor',
-      '例如 255,140,0',
-    );
-    this.addTextSetting(
       '导出目录',
       'vault 内相对路径；留空则导出到根目录。文件名固定为「书名.md」。',
       'annotationExportDir',
@@ -191,7 +185,7 @@ export class SettingsTab extends PluginSettingTab {
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationFirstCharColor' | 'annotationExportDir',
+    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationExportDir',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)

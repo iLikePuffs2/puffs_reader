@@ -578,7 +578,6 @@ export class ReaderView extends ItemView {
       kind: 'anno' | 'search';
       annoIdx?: number;
       hasNote?: boolean;
-      hasNoteFirstChar?: boolean;
     };
     const tokens: Token[] = [];
     const leadingPlainEnd = charOffset === 0 ? (text.match(/^[\s\u3000]+/)?.[0].length ?? 0) : 0;
@@ -587,14 +586,12 @@ export class ReaderView extends ItemView {
       const localStart = Math.max(leadingPlainEnd, segment.startOffset - charOffset);
       const localEnd = Math.min(text.length, segment.endOffset - charOffset);
       if (localEnd <= localStart) continue;
-      const firstDecoratedOffset = this.getAnnotationFirstDecoratedOffset(a);
       tokens.push({
         start: localStart,
         end: localEnd,
         kind: 'anno',
         annoIdx: idx,
         hasNote: !!a.note,
-        hasNoteFirstChar: !!a.note && paraIndex === a.paraIndex && charOffset + localStart === firstDecoratedOffset,
       });
     }
     for (const m of searches) {
@@ -616,13 +613,7 @@ export class ReaderView extends ItemView {
       } else {
         const cls = t.hasNote ? 'puffs-annotation puffs-has-note' : 'puffs-annotation';
         const idxAttr = t.annoIdx !== undefined ? ` data-anno-idx="${t.annoIdx}"` : '';
-        if (t.hasNoteFirstChar && inner.length > 0) {
-          const first = this.escapeHTML(inner.slice(0, 1));
-          const rest = this.escapeHTML(inner.slice(1));
-          result += `<span class="${cls}"${idxAttr}><span class="puffs-anno-first">${first}</span>${rest}</span>`;
-        } else {
-          result += `<span class="${cls}"${idxAttr}>${this.escapeHTML(inner)}</span>`;
-        }
+        result += `<span class="${cls}"${idxAttr}>${this.escapeHTML(inner)}</span>`;
       }
       cursor = t.end;
     }
@@ -1191,9 +1182,6 @@ export class ReaderView extends ItemView {
     const annoBg = s.annotationHighlightColor ? `rgba(${s.annotationHighlightColor},0.42)` : '';
     if (annoBg) this.rootEl.style.setProperty('--puffs-anno-bg', annoBg);
     else this.rootEl.style.removeProperty('--puffs-anno-bg');
-    const annoFirst = s.annotationFirstCharColor ? `rgb(${s.annotationFirstCharColor})` : '';
-    if (annoFirst) this.rootEl.style.setProperty('--puffs-anno-first-color', annoFirst);
-    else this.rootEl.style.removeProperty('--puffs-anno-first-color');
     if (chapterColor) this.rootEl.style.setProperty('--puffs-chapter-meta-color', chapterColor);
     else this.rootEl.style.removeProperty('--puffs-chapter-meta-color');
     if (progressColor) this.rootEl.style.setProperty('--puffs-progress-meta-color', progressColor);
@@ -1521,12 +1509,6 @@ export class ReaderView extends ItemView {
       paraIndex: annotation.paraIndex,
       charOffset: annotation.startOffset + annotation.length,
     };
-  }
-
-  private getAnnotationFirstDecoratedOffset(annotation: Annotation): number {
-    const paragraph = this.paragraphs[annotation.paraIndex] ?? '';
-    const leadingLength = paragraph.match(/^[\s\u3000]+/)?.[0].length ?? 0;
-    return Math.max(annotation.startOffset, leadingLength);
   }
 
   private getAnnotationSegment(

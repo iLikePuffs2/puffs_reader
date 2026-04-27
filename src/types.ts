@@ -56,8 +56,6 @@ export interface ReaderSettings {
   sidebarTitleFontSize: number;
   /** 标注高亮背景色 (RGB)，空 = 跟随浏览器选区色 */
   annotationHighlightColor: string;
-  /** 批注首字颜色 (RGB) */
-  annotationFirstCharColor: string;
   /** 标注/批注导出目录（vault 内相对路径，留空 = 根目录） */
   annotationExportDir: string;
   /** 导出 Markdown 成功后是否删除当前书对应的标注/批注 */
@@ -177,7 +175,6 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   tocPanelHotkey: 'Ctrl+B',
   sidebarTitleFontSize: 16,
   annotationHighlightColor: '',
-  annotationFirstCharColor: '255,140,0',
   annotationExportDir: '',
   deleteAnnotationsAfterExport: true,
 };
