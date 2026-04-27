@@ -477,6 +477,12 @@
   cursor: pointer;
 }
 
+/* Keep reader colors unchanged behind the annotation modal. */
+.modal-container.mod-dim:has(> .puffs-anno-modal) > .modal-bg {
+  background-color: transparent !important;
+  opacity: 0 !important;
+}
+
 .puffs-anno-modal .modal-close-button,
 .puffs-anno-modal .modal-header {
   display: none !important;
