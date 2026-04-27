@@ -425,13 +425,13 @@ export class ReaderView extends ItemView {
       }
       lines = collapsed;
     }
-    lines = this.removeBlankLinesAroundChapter(lines);
+    lines = this.removeBlankLinesAfterChapter(lines);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     return lines;
   }
 
-  /** 章节标题前后的空行只会制造章节过渡空白，这里直接清理掉。 */
-  private removeBlankLinesAroundChapter(lines: string[]): string[] {
+  /** 章节标题后面的空行只会拉开章节名和正文第一段，这里直接清理掉。 */
+  private removeBlankLinesAfterChapter(lines: string[]): string[] {
     const tocRegexText = this.getEffectiveTocRegex();
     if (!tocRegexText) return lines;
 
@@ -447,9 +447,6 @@ export class ReaderView extends ItemView {
     for (const line of lines) {
       const trimmed = line.trim();
       if (previousWasChapter && trimmed === '') continue;
-      if (trimmed !== '' && tocRegex.test(trimmed)) {
-        while (cleaned.length > 0 && cleaned[cleaned.length - 1].trim() === '') cleaned.pop();
-      }
 
       cleaned.push(line);
       previousWasChapter = trimmed !== '' && tocRegex.test(trimmed);

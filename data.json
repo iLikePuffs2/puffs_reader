@@ -35,19 +35,48 @@
   },
   "progress": {
     "小说/书库/苟在初圣魔门当人材.txt": {
-      "paragraphIndex": 34389,
-      "charOffset": 24,
-      "lastRead": 1777282443235
+      "paragraphIndex": 34900,
+      "charOffset": 0,
+      "lastRead": 1777283154223
     },
     "小说/书库/锦衣夜行.txt": {
-      "paragraphIndex": 29,
+      "paragraphIndex": 70,
       "charOffset": 0,
-      "lastRead": 1777282337556
+      "lastRead": 1777282946936
     }
   },
   "bookSettings": {
     "小说/书库/锦衣夜行.txt": {
-      "encoding": "gbk"
+      "encoding": "gbk",
+      "annotations": [
+        {
+          "paraIndex": 30,
+          "startOffset": 2,
+          "length": 13,
+          "endParaIndex": 30,
+          "endOffset": 15,
+          "text": "既然名草有主，此事自然休提",
+          "createdAt": 1777282808411
+        },
+        {
+          "paraIndex": 31,
+          "startOffset": 26,
+          "length": 50,
+          "endParaIndex": 32,
+          "endOffset": 13,
+          "text": "如今他携女子到自家别庄避暑，这还是头一回，显见这个女子是极讨他的欢心了。\n　　小舟在距岸约一丈处停下",
+          "createdAt": 1777282815082
+        },
+        {
+          "paraIndex": 71,
+          "startOffset": 0,
+          "length": 35,
+          "endParaIndex": 71,
+          "endOffset": 35,
+          "text": "　　一炷香的时间之后，云河镇杨府别庄的大门洞开，张十三驾着马车疾驰而出",
+          "createdAt": 1777282832211
+        }
+      ]
     },
     "小说/书库/苟在初圣魔门当人材.txt": {
       "encoding": "utf-8",
@@ -391,6 +420,15 @@
           "endOffset": 45,
           "text": "但是再加上圣宗那可就不同了，顺带还可以帮他一起背锅",
           "createdAt": 1777281759978
+        },
+        {
+          "paraIndex": 34859,
+          "startOffset": 53,
+          "length": 32,
+          "endParaIndex": 34859,
+          "endOffset": 85,
+          "text": "被别人不讲武德的对付固然会气的发疯，可不讲武德对付别人可就很爽了",
+          "createdAt": 1777283003944
         }
       ]
     }
