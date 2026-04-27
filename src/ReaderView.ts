@@ -147,13 +147,18 @@ export class ReaderView extends ItemView {
   }
 
   /** 供插件命令调用，打开当前阅读器的全文搜索。 */
-  openSearch(): void {
-    this.openSidebar('search');
+  openSearch(query?: string): void {
+    this.openSidebar('search', query);
   }
 
   /** 搜索快捷键重复触发时，在打开/关闭搜索面板之间切换。 */
   toggleSearchFromHotkey(): void {
     if (!this.shouldHandleSearchHotkey()) return;
+    const selectedText = this.getSelectedSearchText();
+    if (selectedText) {
+      this.openSearch(selectedText);
+      return;
+    }
     if (this.isTocOpen && this.sidebarMode === 'search') {
       this.closeSidebar();
       this.focusReader();
@@ -919,16 +924,21 @@ export class ReaderView extends ItemView {
     this.readingArea.focus();
   }
 
-  private openSidebar(mode: 'toc' | 'search' | 'notes'): void {
+  private openSidebar(mode: 'toc' | 'search' | 'notes', searchQuery?: string): void {
     this.isTocOpen = true;
     this.tocSidebar.classList.remove('puffs-hidden');
     this.applySidebarMode(mode);
     if (mode === 'toc') {
       requestAnimationFrame(() => this.scrollTocToActiveChapter());
     } else if (mode === 'search') {
-      this.clearSearchInput();
+      if (searchQuery !== undefined) {
+        this.setSearchInput(searchQuery);
+      } else {
+        this.clearSearchInput();
+      }
       requestAnimationFrame(() => {
         this.searchInput.focus();
+        if (searchQuery !== undefined) this.searchInput.select();
       });
     } else if (mode === 'notes') {
       this.renderNotesPane();
@@ -983,6 +993,12 @@ export class ReaderView extends ItemView {
     this.searchInfoEl.textContent = '';
     this.searchResultsEl.empty();
     this.renderCurrentPage();
+  }
+
+  private setSearchInput(query: string): void {
+    this.searchInput.value = query;
+    window.clearTimeout(this.searchTimer);
+    this.performSearch(query);
   }
 
   private performSearch(query: string): void {
@@ -1632,6 +1648,12 @@ export class ReaderView extends ItemView {
       length: text.length,
       text,
     };
+  }
+
+  private getSelectedSearchText(): string | null {
+    const selection = this.captureSelection();
+    const text = selection?.text.replace(/\s+/g, ' ').trim();
+    return text || null;
   }
 
   private buildAnnotationText(start: ReaderPosition, end: ReaderPosition): string {

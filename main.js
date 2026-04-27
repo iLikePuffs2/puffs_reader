@@ -165,12 +165,17 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.focusReader();
   }
   /** 供插件命令调用，打开当前阅读器的全文搜索。 */
-  openSearch() {
-    this.openSidebar("search");
+  openSearch(query) {
+    this.openSidebar("search", query);
   }
   /** 搜索快捷键重复触发时，在打开/关闭搜索面板之间切换。 */
   toggleSearchFromHotkey() {
     if (!this.shouldHandleSearchHotkey()) return;
+    const selectedText = this.getSelectedSearchText();
+    if (selectedText) {
+      this.openSearch(selectedText);
+      return;
+    }
     if (this.isTocOpen && this.sidebarMode === "search") {
       this.closeSidebar();
       this.focusReader();
@@ -820,16 +825,21 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.tocSidebar.classList.add("puffs-hidden");
     this.readingArea.focus();
   }
-  openSidebar(mode) {
+  openSidebar(mode, searchQuery) {
     this.isTocOpen = true;
     this.tocSidebar.classList.remove("puffs-hidden");
     this.applySidebarMode(mode);
     if (mode === "toc") {
       requestAnimationFrame(() => this.scrollTocToActiveChapter());
     } else if (mode === "search") {
-      this.clearSearchInput();
+      if (searchQuery !== void 0) {
+        this.setSearchInput(searchQuery);
+      } else {
+        this.clearSearchInput();
+      }
       requestAnimationFrame(() => {
         this.searchInput.focus();
+        if (searchQuery !== void 0) this.searchInput.select();
       });
     } else if (mode === "notes") {
       this.renderNotesPane();
@@ -876,6 +886,11 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.searchInfoEl.textContent = "";
     this.searchResultsEl.empty();
     this.renderCurrentPage();
+  }
+  setSearchInput(query) {
+    this.searchInput.value = query;
+    window.clearTimeout(this.searchTimer);
+    this.performSearch(query);
   }
   performSearch(query) {
     this.searchQuery = query.trim();
@@ -1431,6 +1446,11 @@ var ReaderView = class extends import_obsidian.ItemView {
       length: text.length,
       text
     };
+  }
+  getSelectedSearchText() {
+    const selection = this.captureSelection();
+    const text = selection == null ? void 0 : selection.text.replace(/\s+/g, " ").trim();
+    return text || null;
   }
   buildAnnotationText(start, end) {
     var _a;
