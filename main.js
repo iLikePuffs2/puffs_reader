@@ -66,6 +66,7 @@ var DEFAULT_SETTINGS = {
   showProgress: true,
   removeExtraBlankLines: true,
   cursorHideDelayMs: 2e3,
+  manualPageTurnsPerSecond: 4,
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: "utf-8",
   searchHotkey: "Ctrl+F",
@@ -103,6 +104,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.progressSaveTimer = 0;
     this.searchTimer = 0;
     this.cursorHideTimer = 0;
+    this.lastManualPageTurnAt = 0;
     this.resizeObserver = null;
     this.boundGlobalKeydown = null;
     this.boundMouseMove = null;
@@ -662,21 +664,36 @@ var ReaderView = class extends import_obsidian.ItemView {
     return lastCompleteOffset;
   }
   pageDown() {
-    if (this.comparePositions(this.currentPageEnd, this.currentPageStart) <= 0) return;
-    if (this.currentPageEnd.paraIndex >= this.paragraphs.length) return;
+    if (this.comparePositions(this.currentPageEnd, this.currentPageStart) <= 0) return false;
+    if (this.currentPageEnd.paraIndex >= this.paragraphs.length) return false;
     this.pageBackStack.push({ ...this.currentPageStart });
     this.currentPageStart = this.skipBlankPageStart(this.clampPosition(this.currentPageEnd));
     this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
+    return true;
   }
   pageUp() {
     var _a;
-    if (this.currentPageStart.paraIndex === 0 && this.currentPageStart.charOffset === 0) return;
+    if (this.currentPageStart.paraIndex === 0 && this.currentPageStart.charOffset === 0) return false;
     this.currentPageStart = (_a = this.pageBackStack.pop()) != null ? _a : this.findPreviousPageStart(this.currentPageStart);
     this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
+    return true;
+  }
+  tryManualPageTurn(direction) {
+    if (!this.canManualPageTurnNow()) return;
+    const didTurn = direction === "next" ? this.pageDown() : this.pageUp();
+    if (didTurn) this.lastManualPageTurnAt = performance.now();
+  }
+  canManualPageTurnNow() {
+    const limit = this.plugin.settings.manualPageTurnsPerSecond;
+    if (!Number.isFinite(limit) || limit <= 0) return true;
+    if (this.lastManualPageTurnAt === 0) return true;
+    const now = performance.now();
+    const minIntervalMs = 1e3 / limit;
+    return now - this.lastManualPageTurnAt >= minIntervalMs;
   }
   /** 反向翻页用前向测量逼近，保证上一页结束位置正好衔接当前页首。 */
   findPreviousPageStart(target) {
@@ -1281,10 +1298,10 @@ var ReaderView = class extends import_obsidian.ItemView {
     }
     if (e.key === "ArrowRight") {
       e.preventDefault();
-      this.pageDown();
+      this.tryManualPageTurn("next");
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      this.pageUp();
+      this.tryManualPageTurn("previous");
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -1705,6 +1722,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       })
     );
     this.addNumberSetting("\u9F20\u6807\u9690\u85CF\u5EF6\u8FDF", "\u9605\u8BFB\u5668\u6807\u7B7E\u9875\u6FC0\u6D3B\u65F6\uFF0C\u9F20\u6807\u9759\u6B62\u591A\u4E45\u540E\u9690\u85CF\u5149\u6807\u3002\u8BBE\u4E3A 0 \u5219\u4E0D\u81EA\u52A8\u9690\u85CF\u3002", "cursorHideDelayMs", 0, 1e4, 100, "ms");
+    this.addNumberSetting("\u6BCF\u79D2\u624B\u52A8\u7FFB\u9875\u901F\u5EA6\u4E0A\u9650", "\u6309\u952E\u76D8\u65B9\u5411\u952E\u7FFB\u9875\u65F6\uFF0C\u6BCF\u79D2\u6700\u591A\u5141\u8BB8\u7FFB\u8FC7\u7684\u9875\u6570\u3002", "manualPageTurnsPerSecond", 1, 20, 1, "\u9875/\u79D2");
     containerEl.createEl("h3", { text: "\u76EE\u5F55\u4E0E\u7F16\u7801" });
     this.addTextSetting("\u76EE\u5F55\u5339\u914D\u6B63\u5219", "\u6240\u6709\u4E66\u7C4D\u9ED8\u8BA4\u7AE0\u8282\u5339\u914D\u6B63\u5219\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "tocRegex", DEFAULT_SETTINGS.tocRegex);
     new import_obsidian2.Setting(containerEl).setName("\u9ED8\u8BA4\u7F16\u7801").setDesc("\u6253\u5F00\u6587\u4EF6\u65F6\u7684\u9ED8\u8BA4\u7F16\u7801\uFF08\u81EA\u52A8\u68C0\u6D4B\u5931\u8D25\u65F6\u4F7F\u7528\uFF09").addDropdown(

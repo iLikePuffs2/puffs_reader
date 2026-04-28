@@ -46,6 +46,8 @@ export interface ReaderSettings {
   removeExtraBlankLines: boolean;
   /** 阅读器激活时鼠标静止多久后隐藏光标 (ms)，0 表示不隐藏 */
   cursorHideDelayMs: number;
+  /** Keyboard arrow manual page turn limit (pages per second). */
+  manualPageTurnsPerSecond: number;
   /** 全局目录匹配正则，单书设置可以覆写 */
   tocRegex: string;
   /** 默认编码 */
@@ -176,6 +178,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   showProgress: true,
   removeExtraBlankLines: true,
   cursorHideDelayMs: 2000,
+  manualPageTurnsPerSecond: 4,
   tocRegex: DEFAULT_TOC_REGEX,
   defaultEncoding: 'utf-8',
   searchHotkey: 'Ctrl+F',

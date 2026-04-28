@@ -75,6 +75,7 @@ export class ReaderView extends ItemView {
   private progressSaveTimer = 0;
   private searchTimer = 0;
   private cursorHideTimer = 0;
+  private lastManualPageTurnAt = 0;
   private resizeObserver: ResizeObserver | null = null;
   private boundGlobalKeydown: ((e: KeyboardEvent) => void) | null = null;
   private boundMouseMove: ((e: MouseEvent) => void) | null = null;
@@ -738,22 +739,39 @@ export class ReaderView extends ItemView {
     return lastCompleteOffset;
   }
 
-  private pageDown(): void {
-    if (this.comparePositions(this.currentPageEnd, this.currentPageStart) <= 0) return;
-    if (this.currentPageEnd.paraIndex >= this.paragraphs.length) return;
+  private pageDown(): boolean {
+    if (this.comparePositions(this.currentPageEnd, this.currentPageStart) <= 0) return false;
+    if (this.currentPageEnd.paraIndex >= this.paragraphs.length) return false;
     this.pageBackStack.push({ ...this.currentPageStart });
     this.currentPageStart = this.skipBlankPageStart(this.clampPosition(this.currentPageEnd));
     this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
+    return true;
   }
 
-  private pageUp(): void {
-    if (this.currentPageStart.paraIndex === 0 && this.currentPageStart.charOffset === 0) return;
+  private pageUp(): boolean {
+    if (this.currentPageStart.paraIndex === 0 && this.currentPageStart.charOffset === 0) return false;
     this.currentPageStart = this.pageBackStack.pop() ?? this.findPreviousPageStart(this.currentPageStart);
     this.recordPageTurnAfterSearchJump();
     this.renderCurrentPage();
     this.readingArea.focus();
+    return true;
+  }
+
+  private tryManualPageTurn(direction: 'next' | 'previous'): void {
+    if (!this.canManualPageTurnNow()) return;
+    const didTurn = direction === 'next' ? this.pageDown() : this.pageUp();
+    if (didTurn) this.lastManualPageTurnAt = performance.now();
+  }
+
+  private canManualPageTurnNow(): boolean {
+    const limit = this.plugin.settings.manualPageTurnsPerSecond;
+    if (!Number.isFinite(limit) || limit <= 0) return true;
+    if (this.lastManualPageTurnAt === 0) return true;
+    const now = performance.now();
+    const minIntervalMs = 1000 / limit;
+    return now - this.lastManualPageTurnAt >= minIntervalMs;
   }
 
   /** 反向翻页用前向测量逼近，保证上一页结束位置正好衔接当前页首。 */
@@ -1449,10 +1467,10 @@ export class ReaderView extends ItemView {
     }
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      this.pageDown();
+      this.tryManualPageTurn('next');
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      this.pageUp();
+      this.tryManualPageTurn('previous');
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();

@@ -68,6 +68,7 @@ export class SettingsTab extends PluginSettingTab {
       );
 
     this.addNumberSetting('鼠标隐藏延迟', '阅读器标签页激活时，鼠标静止多久后隐藏光标。设为 0 则不自动隐藏。', 'cursorHideDelayMs', 0, 10000, 100, 'ms');
+    this.addNumberSetting('每秒手动翻页速度上限', '按键盘方向键翻页时，每秒最多允许翻过的页数。', 'manualPageTurnsPerSecond', 1, 20, 1, '页/秒');
 
     containerEl.createEl('h3', { text: '目录与编码' });
     this.addTextSetting('目录匹配正则', '所有书籍默认章节匹配正则；单书设置可覆写。', 'tocRegex', DEFAULT_SETTINGS.tocRegex);
