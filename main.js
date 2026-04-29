@@ -496,6 +496,9 @@ var ReaderView = class extends import_obsidian.ItemView {
     p.className = "puffs-para";
     p.dataset.paraIndex = String(paraIndex);
     p.dataset.charOffset = String(charOffset);
+    if (charOffset > 0) {
+      p.classList.add("puffs-para-fragment");
+    }
     const chapter = charOffset === 0 ? this.getChapterStartingAt(paraIndex) : null;
     if (chapter) {
       p.classList.add("puffs-para-chapter");
@@ -511,13 +514,18 @@ var ReaderView = class extends import_obsidian.ItemView {
       p.classList.add("puffs-para-continued");
     }
     if (withHighlight) {
-      const html = this.buildDecoratedHTML(text, paraIndex, charOffset);
-      if (html !== null) {
-        p.innerHTML = html;
+      const html2 = this.buildDecoratedHTML(text, paraIndex, charOffset);
+      if (html2 !== null) {
+        p.innerHTML = html2;
         return p;
       }
     }
-    p.textContent = text;
+    const html = this.buildPlainParagraphHTML(text, charOffset);
+    if (html !== null) {
+      p.innerHTML = html;
+    } else {
+      p.textContent = text;
+    }
     return p;
   }
   /**
@@ -568,7 +576,25 @@ var ReaderView = class extends import_obsidian.ItemView {
       cursor = t.end;
     }
     if (cursor < text.length) result += this.escapeHTML(text.slice(cursor));
-    return result;
+    return this.hideLeadingIndentHTML(result, text, charOffset);
+  }
+  buildPlainParagraphHTML(text, charOffset) {
+    const leadingLength = this.getLeadingIndentLength(text, charOffset);
+    if (leadingLength === 0) return null;
+    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${this.escapeHTML(text.slice(leadingLength))}`;
+  }
+  hideLeadingIndentHTML(html, text, charOffset) {
+    const leadingLength = this.getLeadingIndentLength(text, charOffset);
+    if (leadingLength === 0) return html;
+    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${html.slice(leadingLength)}`;
+  }
+  getLeadingIndentLength(text, charOffset) {
+    var _a, _b;
+    if (charOffset !== 0) return 0;
+    return (_b = (_a = text.match(/^[\s\u3000]+/)) == null ? void 0 : _a[0].length) != null ? _b : 0;
+  }
+  renderHiddenLeadingIndent(text) {
+    return `<span class="puffs-leading-indent">${this.escapeHTML(text)}</span>`;
   }
   isContentOverflowing() {
     return this.contentContainer.scrollHeight > this.contentContainer.clientHeight;
@@ -626,10 +652,7 @@ var ReaderView = class extends import_obsidian.ItemView {
    */
   findLastCompleteLineOffset(para, text) {
     var _a, _b;
-    const node = para.firstChild;
-    if (!node || node.nodeType !== Node.TEXT_NODE || text.length === 0) return 0;
-    const measurableLength = Math.min(text.length, (_b = (_a = node.textContent) == null ? void 0 : _a.length) != null ? _b : 0);
-    if (measurableLength <= 0) return 0;
+    if (text.length === 0) return 0;
     const style = getComputedStyle(this.contentContainer);
     const bottomPadding = parseFloat(style.paddingBottom || "0") || 0;
     const bottomGuard = 1;
@@ -638,20 +661,31 @@ var ReaderView = class extends import_obsidian.ItemView {
     let lastLineTop = Number.NaN;
     let lastLineBottom = 0;
     let lastCompleteOffset = 0;
-    for (let i = 0; i < measurableLength; i++) {
-      range.setStart(node, i);
-      range.setEnd(node, i + 1);
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) continue;
-      const top = Math.round(rect.top);
-      if (!Number.isNaN(lastLineTop) && Math.abs(top - lastLineTop) > 1) {
-        if (lastLineBottom <= bottomLimit) lastCompleteOffset = i;
+    let globalOffset = 0;
+    const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    outer:
+      while (node) {
+        const length = (_b = (_a = node.textContent) == null ? void 0 : _a.length) != null ? _b : 0;
+        for (let i = 0; i < length; i++) {
+          range.setStart(node, i);
+          range.setEnd(node, i + 1);
+          const rect = range.getBoundingClientRect();
+          const nextOffset = globalOffset + i + 1;
+          if (rect.width === 0 && rect.height === 0) continue;
+          const top = Math.round(rect.top);
+          if (!Number.isNaN(lastLineTop) && Math.abs(top - lastLineTop) > 1) {
+            if (lastLineBottom <= bottomLimit) lastCompleteOffset = globalOffset + i;
+          }
+          if (rect.top > bottomLimit) break outer;
+          lastLineTop = top;
+          lastLineBottom = rect.bottom;
+          lastCompleteOffset = nextOffset;
+        }
+        globalOffset += length;
+        node = walker.nextNode();
       }
-      if (rect.top > bottomLimit) break;
-      lastLineTop = top;
-      lastLineBottom = rect.bottom;
-    }
-    if (lastLineBottom <= bottomLimit) lastCompleteOffset = measurableLength;
+    if (lastLineBottom <= bottomLimit) lastCompleteOffset = Math.min(globalOffset, text.length);
     range.detach();
     return lastCompleteOffset;
   }

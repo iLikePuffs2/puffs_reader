@@ -441,6 +441,14 @@
   overflow-wrap: anywhere;
 }
 
+.puffs-leading-indent {
+  display: none;
+}
+
+.puffs-para-fragment {
+  text-indent: 0;
+}
+
 .puffs-para-chapter {
   font-size: calc(var(--puffs-font-size, 18px) + 4px);
   font-weight: 700;

@@ -540,6 +540,9 @@ export class ReaderView extends ItemView {
     p.className = 'puffs-para';
     p.dataset.paraIndex = String(paraIndex);
     p.dataset.charOffset = String(charOffset);
+    if (charOffset > 0) {
+      p.classList.add('puffs-para-fragment');
+    }
 
     const chapter = charOffset === 0 ? this.getChapterStartingAt(paraIndex) : null;
     if (chapter) {
@@ -567,7 +570,12 @@ export class ReaderView extends ItemView {
       }
     }
 
-    p.textContent = text;
+    const html = this.buildPlainParagraphHTML(text, charOffset);
+    if (html !== null) {
+      p.innerHTML = html;
+    } else {
+      p.textContent = text;
+    }
     return p;
   }
 
@@ -631,7 +639,28 @@ export class ReaderView extends ItemView {
       cursor = t.end;
     }
     if (cursor < text.length) result += this.escapeHTML(text.slice(cursor));
-    return result;
+    return this.hideLeadingIndentHTML(result, text, charOffset);
+  }
+
+  private buildPlainParagraphHTML(text: string, charOffset: number): string | null {
+    const leadingLength = this.getLeadingIndentLength(text, charOffset);
+    if (leadingLength === 0) return null;
+    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${this.escapeHTML(text.slice(leadingLength))}`;
+  }
+
+  private hideLeadingIndentHTML(html: string, text: string, charOffset: number): string {
+    const leadingLength = this.getLeadingIndentLength(text, charOffset);
+    if (leadingLength === 0) return html;
+    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${html.slice(leadingLength)}`;
+  }
+
+  private getLeadingIndentLength(text: string, charOffset: number): number {
+    if (charOffset !== 0) return 0;
+    return text.match(/^[\s\u3000]+/)?.[0].length ?? 0;
+  }
+
+  private renderHiddenLeadingIndent(text: string): string {
+    return `<span class="puffs-leading-indent">${this.escapeHTML(text)}</span>`;
   }
 
   private isContentOverflowing(): boolean {
@@ -696,10 +725,7 @@ export class ReaderView extends ItemView {
    * 通过 Range 读取浏览器实际换行后的矩形，避免使用估算行高造成翻页漂移。
    */
   private findLastCompleteLineOffset(para: HTMLElement, text: string): number {
-    const node = para.firstChild;
-    if (!node || node.nodeType !== Node.TEXT_NODE || text.length === 0) return 0;
-    const measurableLength = Math.min(text.length, node.textContent?.length ?? 0);
-    if (measurableLength <= 0) return 0;
+    if (text.length === 0) return 0;
 
     const style = getComputedStyle(this.contentContainer);
     const bottomPadding = parseFloat(style.paddingBottom || '0') || 0;
@@ -710,23 +736,35 @@ export class ReaderView extends ItemView {
     let lastLineBottom = 0;
     let lastCompleteOffset = 0;
 
-    for (let i = 0; i < measurableLength; i++) {
-      range.setStart(node, i);
-      range.setEnd(node, i + 1);
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) continue;
+    let globalOffset = 0;
+    const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode() as Text | null;
 
-      const top = Math.round(rect.top);
-      if (!Number.isNaN(lastLineTop) && Math.abs(top - lastLineTop) > 1) {
-        if (lastLineBottom <= bottomLimit) lastCompleteOffset = i;
+    outer:
+    while (node) {
+      const length = node.textContent?.length ?? 0;
+      for (let i = 0; i < length; i++) {
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        const rect = range.getBoundingClientRect();
+        const nextOffset = globalOffset + i + 1;
+        if (rect.width === 0 && rect.height === 0) continue;
+
+        const top = Math.round(rect.top);
+        if (!Number.isNaN(lastLineTop) && Math.abs(top - lastLineTop) > 1) {
+          if (lastLineBottom <= bottomLimit) lastCompleteOffset = globalOffset + i;
+        }
+
+        if (rect.top > bottomLimit) break outer;
+        lastLineTop = top;
+        lastLineBottom = rect.bottom;
+        lastCompleteOffset = nextOffset;
       }
-
-      if (rect.top > bottomLimit) break;
-      lastLineTop = top;
-      lastLineBottom = rect.bottom;
+      globalOffset += length;
+      node = walker.nextNode() as Text | null;
     }
 
-    if (lastLineBottom <= bottomLimit) lastCompleteOffset = measurableLength;
+    if (lastLineBottom <= bottomLimit) lastCompleteOffset = Math.min(globalOffset, text.length);
     range.detach();
     return lastCompleteOffset;
   }
