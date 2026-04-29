@@ -401,15 +401,7 @@ var ReaderView = class extends import_obsidian.ItemView {
   processText(text) {
     let lines = text.split(/\r?\n/);
     if (this.plugin.settings.removeExtraBlankLines) {
-      const collapsed = [];
-      let lastBlank = false;
-      for (const line of lines) {
-        const isBlank = line.trim() === "";
-        if (isBlank && lastBlank) continue;
-        collapsed.push(line);
-        lastBlank = isBlank;
-      }
-      lines = collapsed;
+      lines = lines.filter((line) => line.trim() !== "");
     }
     lines = this.removeBlankLinesAfterChapter(lines);
     while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
