@@ -540,6 +540,7 @@ export class ReaderView extends ItemView {
     p.className = 'puffs-para';
     p.dataset.paraIndex = String(paraIndex);
     p.dataset.charOffset = String(charOffset);
+    p.dataset.leadingIndentLength = String(this.getLeadingIndentLength(text, charOffset));
     if (charOffset > 0) {
       p.classList.add('puffs-para-fragment');
     }
@@ -570,12 +571,7 @@ export class ReaderView extends ItemView {
       }
     }
 
-    const html = this.buildPlainParagraphHTML(text, charOffset);
-    if (html !== null) {
-      p.innerHTML = html;
-    } else {
-      p.textContent = text;
-    }
+    p.textContent = this.getRenderableParagraphText(text, charOffset);
     return p;
   }
 
@@ -601,7 +597,7 @@ export class ReaderView extends ItemView {
       hasNote?: boolean;
     };
     const tokens: Token[] = [];
-    const leadingPlainEnd = charOffset === 0 ? (text.match(/^[\s\u3000]+/)?.[0].length ?? 0) : 0;
+    const leadingPlainEnd = this.getLeadingIndentLength(text, charOffset);
     for (const { a, idx, segment } of annos) {
       if (!segment) continue;
       const localStart = Math.max(leadingPlainEnd, segment.startOffset - charOffset);
@@ -624,7 +620,7 @@ export class ReaderView extends ItemView {
     tokens.sort((a, b) => a.start - b.start || (a.kind === 'anno' ? -1 : 1));
 
     let result = '';
-    let cursor = 0;
+    let cursor = leadingPlainEnd;
     for (const t of tokens) {
       if (t.start < cursor) continue;
       if (t.start > cursor) result += this.escapeHTML(text.slice(cursor, t.start));
@@ -639,19 +635,7 @@ export class ReaderView extends ItemView {
       cursor = t.end;
     }
     if (cursor < text.length) result += this.escapeHTML(text.slice(cursor));
-    return this.hideLeadingIndentHTML(result, text, charOffset);
-  }
-
-  private buildPlainParagraphHTML(text: string, charOffset: number): string | null {
-    const leadingLength = this.getLeadingIndentLength(text, charOffset);
-    if (leadingLength === 0) return null;
-    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${this.escapeHTML(text.slice(leadingLength))}`;
-  }
-
-  private hideLeadingIndentHTML(html: string, text: string, charOffset: number): string {
-    const leadingLength = this.getLeadingIndentLength(text, charOffset);
-    if (leadingLength === 0) return html;
-    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${html.slice(leadingLength)}`;
+    return result;
   }
 
   private getLeadingIndentLength(text: string, charOffset: number): number {
@@ -659,8 +643,9 @@ export class ReaderView extends ItemView {
     return text.match(/^[\s\u3000]+/)?.[0].length ?? 0;
   }
 
-  private renderHiddenLeadingIndent(text: string): string {
-    return `<span class="puffs-leading-indent">${this.escapeHTML(text)}</span>`;
+  private getRenderableParagraphText(text: string, charOffset: number): string {
+    const leadingLength = this.getLeadingIndentLength(text, charOffset);
+    return leadingLength > 0 ? text.slice(leadingLength) : text;
   }
 
   private isContentOverflowing(): boolean {
@@ -736,7 +721,8 @@ export class ReaderView extends ItemView {
     let lastLineBottom = 0;
     let lastCompleteOffset = 0;
 
-    let globalOffset = 0;
+    const paraCharOffset = Number(para.dataset.charOffset);
+    let globalOffset = this.getLeadingIndentLength(text, Number.isFinite(paraCharOffset) ? paraCharOffset : 0);
     const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode() as Text | null;
 
@@ -843,7 +829,17 @@ export class ReaderView extends ItemView {
       paraIndex++;
     }
     if (paraIndex >= this.paragraphs.length) return { paraIndex: this.paragraphs.length, charOffset: 0 };
-    return { paraIndex, charOffset: Math.min(charOffset, this.paragraphs[paraIndex].length) };
+    const paragraph = this.paragraphs[paraIndex];
+    const clampedOffset = Math.min(charOffset, paragraph.length);
+    return {
+      paraIndex,
+      charOffset: this.normalizePageCharOffset(paragraph, clampedOffset),
+    };
+  }
+
+  private normalizePageCharOffset(paragraph: string, charOffset: number): number {
+    const leadingLength = this.getLeadingIndentLength(paragraph, 0);
+    return charOffset <= leadingLength ? 0 : charOffset;
   }
 
   private skipBlankPageStart(pos: ReaderPosition): ReaderPosition {
@@ -1738,7 +1734,7 @@ export class ReaderView extends ItemView {
 
   /** 把 (node, offset) 在 paragraph 内换算为纯文本偏移。 */
   private nodeOffsetToTextOffset(para: HTMLElement, node: Node, offset: number): number {
-    let total = 0;
+    let total = Number(para.dataset.leadingIndentLength) || 0;
     const walk = (current: Node): boolean => {
       if (current === node) {
         if (current.nodeType === Node.TEXT_NODE) {

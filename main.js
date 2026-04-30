@@ -496,6 +496,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     p.className = "puffs-para";
     p.dataset.paraIndex = String(paraIndex);
     p.dataset.charOffset = String(charOffset);
+    p.dataset.leadingIndentLength = String(this.getLeadingIndentLength(text, charOffset));
     if (charOffset > 0) {
       p.classList.add("puffs-para-fragment");
     }
@@ -514,18 +515,13 @@ var ReaderView = class extends import_obsidian.ItemView {
       p.classList.add("puffs-para-continued");
     }
     if (withHighlight) {
-      const html2 = this.buildDecoratedHTML(text, paraIndex, charOffset);
-      if (html2 !== null) {
-        p.innerHTML = html2;
+      const html = this.buildDecoratedHTML(text, paraIndex, charOffset);
+      if (html !== null) {
+        p.innerHTML = html;
         return p;
       }
     }
-    const html = this.buildPlainParagraphHTML(text, charOffset);
-    if (html !== null) {
-      p.innerHTML = html;
-    } else {
-      p.textContent = text;
-    }
+    p.textContent = this.getRenderableParagraphText(text, charOffset);
     return p;
   }
   /**
@@ -533,13 +529,12 @@ var ReaderView = class extends import_obsidian.ItemView {
    * 没有任何装饰时返回 null，让调用方走 textContent 快路径。
    */
   buildDecoratedHTML(text, paraIndex, charOffset) {
-    var _a, _b;
     const end = charOffset + text.length;
     const annos = this.getAnnotations().map((a, idx) => ({ a, idx, segment: this.getAnnotationSegment(a, paraIndex) })).filter(({ segment }) => segment !== null && segment.startOffset < end && segment.endOffset > charOffset);
     const searches = this.searchResults.filter((m) => m.paraIndex === paraIndex && m.startOffset < end && m.startOffset + m.length > charOffset);
     if (annos.length === 0 && searches.length === 0) return null;
     const tokens = [];
-    const leadingPlainEnd = charOffset === 0 ? (_b = (_a = text.match(/^[\s\u3000]+/)) == null ? void 0 : _a[0].length) != null ? _b : 0 : 0;
+    const leadingPlainEnd = this.getLeadingIndentLength(text, charOffset);
     for (const { a, idx, segment } of annos) {
       if (!segment) continue;
       const localStart = Math.max(leadingPlainEnd, segment.startOffset - charOffset);
@@ -561,7 +556,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     }
     tokens.sort((a, b) => a.start - b.start || (a.kind === "anno" ? -1 : 1));
     let result = "";
-    let cursor = 0;
+    let cursor = leadingPlainEnd;
     for (const t of tokens) {
       if (t.start < cursor) continue;
       if (t.start > cursor) result += this.escapeHTML(text.slice(cursor, t.start));
@@ -576,25 +571,16 @@ var ReaderView = class extends import_obsidian.ItemView {
       cursor = t.end;
     }
     if (cursor < text.length) result += this.escapeHTML(text.slice(cursor));
-    return this.hideLeadingIndentHTML(result, text, charOffset);
-  }
-  buildPlainParagraphHTML(text, charOffset) {
-    const leadingLength = this.getLeadingIndentLength(text, charOffset);
-    if (leadingLength === 0) return null;
-    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${this.escapeHTML(text.slice(leadingLength))}`;
-  }
-  hideLeadingIndentHTML(html, text, charOffset) {
-    const leadingLength = this.getLeadingIndentLength(text, charOffset);
-    if (leadingLength === 0) return html;
-    return `${this.renderHiddenLeadingIndent(text.slice(0, leadingLength))}${html.slice(leadingLength)}`;
+    return result;
   }
   getLeadingIndentLength(text, charOffset) {
     var _a, _b;
     if (charOffset !== 0) return 0;
     return (_b = (_a = text.match(/^[\s\u3000]+/)) == null ? void 0 : _a[0].length) != null ? _b : 0;
   }
-  renderHiddenLeadingIndent(text) {
-    return `<span class="puffs-leading-indent">${this.escapeHTML(text)}</span>`;
+  getRenderableParagraphText(text, charOffset) {
+    const leadingLength = this.getLeadingIndentLength(text, charOffset);
+    return leadingLength > 0 ? text.slice(leadingLength) : text;
   }
   isContentOverflowing() {
     return this.contentContainer.scrollHeight > this.contentContainer.clientHeight;
@@ -661,7 +647,8 @@ var ReaderView = class extends import_obsidian.ItemView {
     let lastLineTop = Number.NaN;
     let lastLineBottom = 0;
     let lastCompleteOffset = 0;
-    let globalOffset = 0;
+    const paraCharOffset = Number(para.dataset.charOffset);
+    let globalOffset = this.getLeadingIndentLength(text, Number.isFinite(paraCharOffset) ? paraCharOffset : 0);
     const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
     outer:
@@ -757,7 +744,16 @@ var ReaderView = class extends import_obsidian.ItemView {
       paraIndex++;
     }
     if (paraIndex >= this.paragraphs.length) return { paraIndex: this.paragraphs.length, charOffset: 0 };
-    return { paraIndex, charOffset: Math.min(charOffset, this.paragraphs[paraIndex].length) };
+    const paragraph = this.paragraphs[paraIndex];
+    const clampedOffset = Math.min(charOffset, paragraph.length);
+    return {
+      paraIndex,
+      charOffset: this.normalizePageCharOffset(paragraph, clampedOffset)
+    };
+  }
+  normalizePageCharOffset(paragraph, charOffset) {
+    const leadingLength = this.getLeadingIndentLength(paragraph, 0);
+    return charOffset <= leadingLength ? 0 : charOffset;
   }
   skipBlankPageStart(pos) {
     let next = this.clampPosition(pos);
@@ -1528,7 +1524,7 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   /** 把 (node, offset) 在 paragraph 内换算为纯文本偏移。 */
   nodeOffsetToTextOffset(para, node, offset) {
-    let total = 0;
+    let total = Number(para.dataset.leadingIndentLength) || 0;
     const walk = (current) => {
       var _a, _b;
       if (current === node) {

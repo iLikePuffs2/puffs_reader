@@ -441,10 +441,6 @@
   overflow-wrap: anywhere;
 }
 
-.puffs-leading-indent {
-  display: none;
-}
-
 .puffs-para-fragment {
   text-indent: 0;
 }
