@@ -72,6 +72,7 @@ export class SettingsTab extends PluginSettingTab {
 
     containerEl.createEl('h3', { text: '目录与编码' });
     this.addTextSetting('目录匹配正则', '所有书籍默认章节匹配正则；单书设置可覆写。', 'tocRegex', DEFAULT_SETTINGS.tocRegex);
+    this.addTextSetting('章名提取正则', '从章节行中提取显示标题的正则（需含捕获组）；单书设置可覆写。', 'chapterTitleRegex', DEFAULT_SETTINGS.chapterTitleRegex);
 
     new Setting(containerEl)
       .setName('默认编码')
@@ -212,7 +213,7 @@ export class SettingsTab extends PluginSettingTab {
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationExportDir' | 'dataBackupPath',
+    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'chapterTitleRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationExportDir' | 'dataBackupPath',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)
@@ -226,6 +227,7 @@ export class SettingsTab extends PluginSettingTab {
             const fallback =
               key === 'searchHotkey' ? DEFAULT_SETTINGS.searchHotkey :
               key === 'tocPanelHotkey' ? DEFAULT_SETTINGS.tocPanelHotkey :
+              key === 'chapterTitleRegex' ? DEFAULT_SETTINGS.chapterTitleRegex :
               '';
             this.plugin.settings[key] = v.trim() || fallback;
             await this.plugin.savePluginData();

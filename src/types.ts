@@ -50,6 +50,8 @@ export interface ReaderSettings {
   manualPageTurnsPerSecond: number;
   /** 全局目录匹配正则，单书设置可以覆写 */
   tocRegex: string;
+  /** 全局章名提取正则，单书设置可以覆写 */
+  chapterTitleRegex: string;
   /** 默认编码 */
   defaultEncoding: string;
   /** 全文搜索快捷键 */
@@ -182,6 +184,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   cursorHideDelayMs: 2000,
   manualPageTurnsPerSecond: 4,
   tocRegex: DEFAULT_TOC_REGEX,
+  chapterTitleRegex: DEFAULT_CHAPTER_TITLE_REGEX,
   defaultEncoding: 'utf-8',
   searchHotkey: 'Ctrl+F',
   tocPanelHotkey: 'Ctrl+B',

@@ -70,6 +70,7 @@ var DEFAULT_SETTINGS = {
   cursorHideDelayMs: 2e3,
   manualPageTurnsPerSecond: 4,
   tocRegex: DEFAULT_TOC_REGEX,
+  chapterTitleRegex: DEFAULT_CHAPTER_TITLE_REGEX,
   defaultEncoding: "utf-8",
   searchHotkey: "Ctrl+F",
   tocPanelHotkey: "Ctrl+B",
@@ -793,7 +794,7 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   extractChapterTitle(line) {
     var _a, _b, _c;
-    const customRegex = (_a = this.getBookSettings().chapterTitleRegex) != null ? _a : DEFAULT_CHAPTER_TITLE_REGEX;
+    const customRegex = (_a = this.getBookSettings().chapterTitleRegex) != null ? _a : this.plugin.settings.chapterTitleRegex;
     try {
       const match = line.match(new RegExp(customRegex));
       if ((match == null ? void 0 : match[1]) && (match == null ? void 0 : match[2]) && /^[章节回卷集部篇]$/.test(match[2])) {
@@ -1055,7 +1056,7 @@ var ReaderView = class extends import_obsidian.ItemView {
       this.buildTocList();
       this.renderCurrentPage();
     });
-    this.addTextRow(p, "\u7AE0\u540D\u6B63\u5219", (_a = bookSettings.chapterTitleRegex) != null ? _a : DEFAULT_CHAPTER_TITLE_REGEX, (v) => {
+    this.addTextRow(p, "\u7AE0\u540D\u6B63\u5219", (_a = bookSettings.chapterTitleRegex) != null ? _a : this.plugin.settings.chapterTitleRegex, (v) => {
       this.updateBookSettings({ chapterTitleRegex: v || void 0 });
       this.parseChapters();
       this.buildTocList();
@@ -1192,6 +1193,14 @@ var ReaderView = class extends import_obsidian.ItemView {
     };
     const smallUnits = { \u5341: 10, \u767E: 100, \u5343: 1e3 };
     const largeUnits = { \u4E07: 1e4, \u4EBF: 1e8 };
+    const allDigits = [...raw].every((ch) => ch in digits);
+    if (allDigits && raw.length >= 2) {
+      let result = 0;
+      for (const ch of raw) {
+        result = result * 10 + digits[ch];
+      }
+      return result;
+    }
     let total = 0;
     let section = 0;
     let number = 0;
@@ -1750,6 +1759,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     this.addNumberSetting("\u6BCF\u79D2\u624B\u52A8\u7FFB\u9875\u901F\u5EA6\u4E0A\u9650", "\u6309\u952E\u76D8\u65B9\u5411\u952E\u7FFB\u9875\u65F6\uFF0C\u6BCF\u79D2\u6700\u591A\u5141\u8BB8\u7FFB\u8FC7\u7684\u9875\u6570\u3002", "manualPageTurnsPerSecond", 1, 20, 1, "\u9875/\u79D2");
     containerEl.createEl("h3", { text: "\u76EE\u5F55\u4E0E\u7F16\u7801" });
     this.addTextSetting("\u76EE\u5F55\u5339\u914D\u6B63\u5219", "\u6240\u6709\u4E66\u7C4D\u9ED8\u8BA4\u7AE0\u8282\u5339\u914D\u6B63\u5219\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "tocRegex", DEFAULT_SETTINGS.tocRegex);
+    this.addTextSetting("\u7AE0\u540D\u63D0\u53D6\u6B63\u5219", "\u4ECE\u7AE0\u8282\u884C\u4E2D\u63D0\u53D6\u663E\u793A\u6807\u9898\u7684\u6B63\u5219\uFF08\u9700\u542B\u6355\u83B7\u7EC4\uFF09\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "chapterTitleRegex", DEFAULT_SETTINGS.chapterTitleRegex);
     new import_obsidian2.Setting(containerEl).setName("\u9ED8\u8BA4\u7F16\u7801").setDesc("\u6253\u5F00\u6587\u4EF6\u65F6\u7684\u9ED8\u8BA4\u7F16\u7801\uFF08\u81EA\u52A8\u68C0\u6D4B\u5931\u8D25\u65F6\u4F7F\u7528\uFF09").addDropdown(
       (dd) => dd.addOptions({
         "utf-8": "UTF-8",
@@ -1844,7 +1854,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
   addTextSetting(name, desc, key, placeholder) {
     new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addText(
       (text) => text.setPlaceholder(placeholder).setValue(this.plugin.settings[key]).onChange(async (v) => {
-        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : key === "tocPanelHotkey" ? DEFAULT_SETTINGS.tocPanelHotkey : "";
+        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : key === "tocPanelHotkey" ? DEFAULT_SETTINGS.tocPanelHotkey : key === "chapterTitleRegex" ? DEFAULT_SETTINGS.chapterTitleRegex : "";
         this.plugin.settings[key] = v.trim() || fallback;
         await this.plugin.savePluginData();
         this.refreshOpenReaders();

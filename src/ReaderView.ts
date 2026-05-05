@@ -1,6 +1,6 @@
 import { App, ItemView, Modal, Menu, Notice, TFile, ViewStateResult, WorkspaceLeaf, setIcon, Scope } from 'obsidian';
 import PuffsReaderPlugin from './main';
-import { Annotation, BookSettings, Chapter, DEFAULT_CHAPTER_TITLE_REGEX, SearchMatch, SUPPORTED_ENCODINGS } from './types';
+import { Annotation, BookSettings, Chapter, SearchMatch, SUPPORTED_ENCODINGS } from './types';
 
 export const READER_VIEW_TYPE = 'puffs-reader-view';
 
@@ -885,7 +885,7 @@ export class ReaderView extends ItemView {
   }
 
   private extractChapterTitle(line: string): string {
-    const customRegex = this.getBookSettings().chapterTitleRegex ?? DEFAULT_CHAPTER_TITLE_REGEX;
+    const customRegex = this.getBookSettings().chapterTitleRegex ?? this.plugin.settings.chapterTitleRegex;
     try {
       const match = line.match(new RegExp(customRegex));
       if (match?.[1] && match?.[2] && /^[章节回卷集部篇]$/.test(match[2])) {
@@ -1181,7 +1181,7 @@ export class ReaderView extends ItemView {
       this.buildTocList();
       this.renderCurrentPage();
     });
-    this.addTextRow(p, '章名正则', bookSettings.chapterTitleRegex ?? DEFAULT_CHAPTER_TITLE_REGEX, (v) => {
+    this.addTextRow(p, '章名正则', bookSettings.chapterTitleRegex ?? this.plugin.settings.chapterTitleRegex, (v) => {
       this.updateBookSettings({ chapterTitleRegex: v || undefined });
       this.parseChapters();
       this.buildTocList();
@@ -1340,6 +1340,17 @@ export class ReaderView extends ItemView {
     };
     const smallUnits: Record<string, number> = { 十: 10, 百: 100, 千: 1000 };
     const largeUnits: Record<string, number> = { 万: 10000, 亿: 100000000 };
+
+    // 位值写法检测：所有字符都是单字数字且长度>=2且不含"十百千万亿"
+    const allDigits = [...raw].every((ch) => ch in digits);
+    if (allDigits && raw.length >= 2) {
+      let result = 0;
+      for (const ch of raw) {
+        result = result * 10 + digits[ch];
+      }
+      return result;
+    }
+
     let total = 0;
     let section = 0;
     let number = 0;
