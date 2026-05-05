@@ -24,6 +24,8 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_obsidian3 = require("obsidian");
 var import_fs = require("fs");
+var import_child_process = require("child_process");
+var import_util = require("util");
 var import_path = require("path");
 
 // src/ReaderView.ts
@@ -76,7 +78,8 @@ var DEFAULT_SETTINGS = {
   annotationExportDir: "",
   deleteAnnotationsAfterExport: true,
   dataBackupPath: "",
-  dataBackupFrequencyHours: 24
+  dataBackupFrequencyHours: 24,
+  bookLibraryPath: ""
 };
 
 // src/ReaderView.ts
@@ -1791,6 +1794,14 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
         this.refreshOpenReaders();
       })
     );
+    containerEl.createEl("h3", { text: "\u4E66\u5E93 Git \u540C\u6B65" });
+    new import_obsidian2.Setting(containerEl).setName("\u4E66\u5E93\u76EE\u5F55").setDesc("\u5B58\u653E\u5C0F\u8BF4 TXT \u6587\u4EF6\u7684\u76EE\u5F55\u8DEF\u5F84\uFF08\u7EDD\u5BF9\u8DEF\u5F84\u6216\u76F8\u5BF9\u4E8E vault \u7684\u8DEF\u5F84\uFF09\u3002\u63D2\u4EF6\u542F\u52A8 10 \u79D2\u540E\u626B\u63CF\u6587\u4EF6\u53D8\u5316\uFF0C\u6709\u53D8\u52A8\u5219\u81EA\u52A8\u6267\u884C git add / commit / push\u3002\u7559\u7A7A\u7981\u7528\u3002").addText(
+      (text) => text.setPlaceholder("\u4F8B\u5982 D:\\novels \u6216 novels").setValue(this.plugin.settings.bookLibraryPath).onChange(async (v) => {
+        this.plugin.settings.bookLibraryPath = v.trim();
+        await this.plugin.savePluginData();
+        this.plugin.scheduleBookLibraryScan();
+      })
+    );
     containerEl.createEl("h3", { text: "\u6570\u636E\u5907\u4EFD" });
     this.addTextSetting(
       "\u5907\u4EFD\u8DEF\u5F84",
@@ -1850,6 +1861,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
 };
 
 // src/main.ts
+var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var TxtFileSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
   constructor(plugin) {
     super(plugin.app);
@@ -1876,7 +1888,9 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     this.progress = {};
     this.bookSettings = {};
     this.lastDataBackupAt = 0;
+    this.knownBooks = [];
     this.dataBackupTimer = null;
+    this.bookScanTimer = null;
   }
   async onload() {
     await this.loadPluginData();
@@ -1913,9 +1927,14 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     );
     this.addSettingTab(new SettingsTab(this.app, this));
     this.scheduleNextDataBackup();
+    this.scheduleBookLibraryScan();
   }
   onunload() {
     this.clearDataBackupTimer();
+    if (this.bookScanTimer !== null) {
+      window.clearTimeout(this.bookScanTimer);
+      this.bookScanTimer = null;
+    }
   }
   // ═══════════════════════════ 打开阅读器 ═══════════════════════════
   /**
@@ -1936,14 +1955,15 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
   }
   // ═══════════════════════════ 数据持久化 ═══════════════════════════
   async loadPluginData() {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     const data = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data == null ? void 0 : data.settings);
     this.progress = (_a = data == null ? void 0 : data.progress) != null ? _a : {};
     this.bookSettings = (_b = data == null ? void 0 : data.bookSettings) != null ? _b : {};
     this.lastDataBackupAt = (_c = data == null ? void 0 : data.lastDataBackupAt) != null ? _c : 0;
+    this.knownBooks = (_d = data == null ? void 0 : data.knownBooks) != null ? _d : [];
     for (const [filePath, progress] of Object.entries(this.progress)) {
-      if (progress.encoding && !((_d = this.bookSettings[filePath]) == null ? void 0 : _d.encoding)) {
+      if (progress.encoding && !((_e = this.bookSettings[filePath]) == null ? void 0 : _e.encoding)) {
         this.bookSettings[filePath] = {
           ...this.bookSettings[filePath],
           encoding: progress.encoding
@@ -1964,7 +1984,8 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
       settings: this.settings,
       progress: this.progress,
       bookSettings: this.bookSettings,
-      lastDataBackupAt: this.lastDataBackupAt
+      lastDataBackupAt: this.lastDataBackupAt,
+      knownBooks: this.knownBooks
     });
   }
   scheduleNextDataBackup() {
@@ -2044,6 +2065,71 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     if (/[\\/]$/.test(path)) return true;
     const leaf = (_a = path.split(/[\\/]/).pop()) != null ? _a : "";
     return !leaf.toLowerCase().endsWith(".json");
+  }
+  // ═══════════════════════════ 书库 Git 同步 ═══════════════════════════
+  scheduleBookLibraryScan() {
+    if (this.bookScanTimer !== null) {
+      window.clearTimeout(this.bookScanTimer);
+      this.bookScanTimer = null;
+    }
+    if (!this.settings.bookLibraryPath.trim()) return;
+    this.bookScanTimer = window.setTimeout(() => {
+      this.bookScanTimer = null;
+      this.scanBookLibrary().catch(
+        (e) => console.error("[Puffs Reader] Book library scan failed:", e)
+      );
+    }, 1e4);
+  }
+  async scanBookLibrary() {
+    const libPath = this.resolveBookLibraryPath();
+    if (!libPath) return;
+    const entries = await import_fs.promises.readdir(libPath);
+    const currentBooks = entries.filter((f) => f.toLowerCase().endsWith(".txt")).sort();
+    const knownSorted = [...this.knownBooks].sort();
+    const changed = currentBooks.length !== knownSorted.length || currentBooks.some((b, i) => b !== knownSorted[i]);
+    if (!changed) return;
+    this.knownBooks = currentBooks;
+    await this.savePluginData();
+    await this.gitSyncBookLibrary(libPath);
+  }
+  async gitSyncBookLibrary(libPath) {
+    var _a, _b, _c;
+    try {
+      await execAsync("git add .", { cwd: libPath });
+    } catch (e) {
+      console.error("[Puffs Reader] Book library git add error:", this.gitErrMsg(e));
+      return;
+    }
+    try {
+      await execAsync('git commit -m "update book library"', { cwd: libPath });
+    } catch (e) {
+      const err = e;
+      const combined = `${(_a = err.stdout) != null ? _a : ""} ${(_b = err.stderr) != null ? _b : ""} ${(_c = err.message) != null ? _c : ""}`;
+      if (combined.includes("nothing to commit") || combined.includes("nothing added to commit")) {
+        console.log("[Puffs Reader] Book library: nothing to commit.");
+        return;
+      }
+      console.error("[Puffs Reader] Book library git commit error:", this.gitErrMsg(e));
+      return;
+    }
+    try {
+      await execAsync("git push", { cwd: libPath });
+      console.log("[Puffs Reader] Book library git sync completed successfully.");
+    } catch (e) {
+      console.error("[Puffs Reader] Book library git push error:", this.gitErrMsg(e));
+    }
+  }
+  gitErrMsg(e) {
+    const err = e;
+    return [err.stderr, err.stdout, err.message].filter(Boolean).join(" | ");
+  }
+  resolveBookLibraryPath() {
+    var _a;
+    const raw = this.settings.bookLibraryPath.trim();
+    if (!raw) return null;
+    if ((0, import_path.isAbsolute)(raw)) return raw;
+    const vaultBasePath = (_a = this.app.vault.adapter.basePath) != null ? _a : "";
+    return (0, import_path.join)(vaultBasePath, raw);
   }
   getPluginDir() {
     var _a;

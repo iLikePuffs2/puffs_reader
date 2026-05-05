@@ -131,6 +131,21 @@ export class SettingsTab extends PluginSettingTab {
         }),
       );
 
+    containerEl.createEl('h3', { text: '书库 Git 同步' });
+    new Setting(containerEl)
+      .setName('书库目录')
+      .setDesc('存放小说 TXT 文件的目录路径（绝对路径或相对于 vault 的路径）。插件启动 10 秒后扫描文件变化，有变动则自动执行 git add / commit / push。留空禁用。')
+      .addText((text) =>
+        text
+          .setPlaceholder('例如 D:\\novels 或 novels')
+          .setValue(this.plugin.settings.bookLibraryPath)
+          .onChange(async (v) => {
+            this.plugin.settings.bookLibraryPath = v.trim();
+            await this.plugin.savePluginData();
+            this.plugin.scheduleBookLibraryScan();
+          }),
+      );
+
     containerEl.createEl('h3', { text: '数据备份' });
     this.addTextSetting(
       '备份路径',

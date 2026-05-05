@@ -68,6 +68,8 @@ export interface ReaderSettings {
   dataBackupPath: string;
   /** data.json 自动备份频率（小时） */
   dataBackupFrequencyHours: number;
+  /** 书库 Git 同步：书库目录路径（绝对路径或相对于 vault 的路径），留空禁用 */
+  bookLibraryPath: string;
 }
 
 /** 一条标注或批注 */
@@ -189,4 +191,5 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   deleteAnnotationsAfterExport: true,
   dataBackupPath: '',
   dataBackupFrequencyHours: 24,
+  bookLibraryPath: '',
 };
