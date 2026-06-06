@@ -48,6 +48,10 @@ export interface ReaderSettings {
   cursorHideDelayMs: number;
   /** Keyboard arrow manual page turn limit (pages per second). */
   manualPageTurnsPerSecond: number;
+  /** Extra hotkey for previous page. */
+  previousPageHotkey: string;
+  /** Extra hotkey for next page. */
+  nextPageHotkey: string;
   /** 全局目录匹配正则，单书设置可以覆写 */
   tocRegex: string;
   /** 全局章名提取正则，单书设置可以覆写 */
@@ -183,6 +187,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   removeExtraBlankLines: true,
   cursorHideDelayMs: 2000,
   manualPageTurnsPerSecond: 4,
+  previousPageHotkey: 'j',
+  nextPageHotkey: 'l',
   tocRegex: DEFAULT_TOC_REGEX,
   chapterTitleRegex: DEFAULT_CHAPTER_TITLE_REGEX,
   defaultEncoding: 'utf-8',

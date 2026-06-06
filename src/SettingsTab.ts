@@ -107,6 +107,20 @@ export class SettingsTab extends PluginSettingTab {
       DEFAULT_SETTINGS.tocPanelHotkey,
     );
 
+    this.addTextSetting(
+      '上一页快捷键',
+      '默认 j。除左方向键外，用于向前翻页的自定义按键。支持 Ctrl/Alt/Shift 加单个按键。',
+      'previousPageHotkey',
+      DEFAULT_SETTINGS.previousPageHotkey,
+    );
+
+    this.addTextSetting(
+      '下一页快捷键',
+      '默认 l。除右方向键外，用于向后翻页的自定义按键。支持 Ctrl/Alt/Shift 加单个按键。',
+      'nextPageHotkey',
+      DEFAULT_SETTINGS.nextPageHotkey,
+    );
+
     containerEl.createEl('h3', { text: '标注与批注' });
     this.addTextSetting(
       '标注高亮颜色',
@@ -213,7 +227,7 @@ export class SettingsTab extends PluginSettingTab {
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'chapterTitleRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'annotationHighlightColor' | 'annotationExportDir' | 'dataBackupPath',
+    key: 'fontColor' | 'backgroundColor' | 'floatingButtonColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'chapterTitleRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'previousPageHotkey' | 'nextPageHotkey' | 'annotationHighlightColor' | 'annotationExportDir' | 'dataBackupPath',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)
@@ -227,6 +241,8 @@ export class SettingsTab extends PluginSettingTab {
             const fallback =
               key === 'searchHotkey' ? DEFAULT_SETTINGS.searchHotkey :
               key === 'tocPanelHotkey' ? DEFAULT_SETTINGS.tocPanelHotkey :
+              key === 'previousPageHotkey' ? DEFAULT_SETTINGS.previousPageHotkey :
+              key === 'nextPageHotkey' ? DEFAULT_SETTINGS.nextPageHotkey :
               key === 'chapterTitleRegex' ? DEFAULT_SETTINGS.chapterTitleRegex :
               '';
             this.plugin.settings[key] = v.trim() || fallback;

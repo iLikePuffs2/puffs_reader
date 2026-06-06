@@ -1471,6 +1471,18 @@ export class ReaderView extends ItemView {
     return this.matchesHotkey(e, this.plugin.settings.tocPanelHotkey || 'Ctrl+B');
   }
 
+  private matchesPreviousPageHotkey(e: KeyboardEvent): boolean {
+    return this.matchesHotkey(e, this.plugin.settings.previousPageHotkey || 'j');
+  }
+
+  private matchesNextPageHotkey(e: KeyboardEvent): boolean {
+    return this.matchesHotkey(e, this.plugin.settings.nextPageHotkey || 'l');
+  }
+
+  private isEditableTarget(target: EventTarget | null): boolean {
+    return target instanceof HTMLElement && !!target.closest('input, textarea, select, [contenteditable="true"]');
+  }
+
   private handleKeydown(e: KeyboardEvent): void {
     if (this.matchesSearchHotkey(e)) {
       e.preventDefault();
@@ -1502,10 +1514,11 @@ export class ReaderView extends ItemView {
       }
       return;
     }
-    if (e.key === 'ArrowRight') {
+    if (this.isEditableTarget(e.target)) return;
+    if (e.key === 'ArrowRight' || this.matchesNextPageHotkey(e)) {
       e.preventDefault();
       this.tryManualPageTurn('next');
-    } else if (e.key === 'ArrowLeft') {
+    } else if (e.key === 'ArrowLeft' || this.matchesPreviousPageHotkey(e)) {
       e.preventDefault();
       this.tryManualPageTurn('previous');
     } else if (e.key === 'Escape') {

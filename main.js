@@ -69,6 +69,8 @@ var DEFAULT_SETTINGS = {
   removeExtraBlankLines: true,
   cursorHideDelayMs: 2e3,
   manualPageTurnsPerSecond: 4,
+  previousPageHotkey: "j",
+  nextPageHotkey: "l",
   tocRegex: DEFAULT_TOC_REGEX,
   chapterTitleRegex: DEFAULT_CHAPTER_TITLE_REGEX,
   defaultEncoding: "utf-8",
@@ -1299,6 +1301,15 @@ var ReaderView = class extends import_obsidian.ItemView {
   matchesTocPanelHotkey(e) {
     return this.matchesHotkey(e, this.plugin.settings.tocPanelHotkey || "Ctrl+B");
   }
+  matchesPreviousPageHotkey(e) {
+    return this.matchesHotkey(e, this.plugin.settings.previousPageHotkey || "j");
+  }
+  matchesNextPageHotkey(e) {
+    return this.matchesHotkey(e, this.plugin.settings.nextPageHotkey || "l");
+  }
+  isEditableTarget(target) {
+    return target instanceof HTMLElement && !!target.closest('input, textarea, select, [contenteditable="true"]');
+  }
   handleKeydown(e) {
     if (this.matchesSearchHotkey(e)) {
       e.preventDefault();
@@ -1330,10 +1341,11 @@ var ReaderView = class extends import_obsidian.ItemView {
       }
       return;
     }
-    if (e.key === "ArrowRight") {
+    if (this.isEditableTarget(e.target)) return;
+    if (e.key === "ArrowRight" || this.matchesNextPageHotkey(e)) {
       e.preventDefault();
       this.tryManualPageTurn("next");
-    } else if (e.key === "ArrowLeft") {
+    } else if (e.key === "ArrowLeft" || this.matchesPreviousPageHotkey(e)) {
       e.preventDefault();
       this.tryManualPageTurn("previous");
     } else if (e.key === "Escape") {
@@ -1784,6 +1796,18 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       "tocPanelHotkey",
       DEFAULT_SETTINGS.tocPanelHotkey
     );
+    this.addTextSetting(
+      "\u4E0A\u4E00\u9875\u5FEB\u6377\u952E",
+      "\u9ED8\u8BA4 j\u3002\u9664\u5DE6\u65B9\u5411\u952E\u5916\uFF0C\u7528\u4E8E\u5411\u524D\u7FFB\u9875\u7684\u81EA\u5B9A\u4E49\u6309\u952E\u3002\u652F\u6301 Ctrl/Alt/Shift \u52A0\u5355\u4E2A\u6309\u952E\u3002",
+      "previousPageHotkey",
+      DEFAULT_SETTINGS.previousPageHotkey
+    );
+    this.addTextSetting(
+      "\u4E0B\u4E00\u9875\u5FEB\u6377\u952E",
+      "\u9ED8\u8BA4 l\u3002\u9664\u53F3\u65B9\u5411\u952E\u5916\uFF0C\u7528\u4E8E\u5411\u540E\u7FFB\u9875\u7684\u81EA\u5B9A\u4E49\u6309\u952E\u3002\u652F\u6301 Ctrl/Alt/Shift \u52A0\u5355\u4E2A\u6309\u952E\u3002",
+      "nextPageHotkey",
+      DEFAULT_SETTINGS.nextPageHotkey
+    );
     containerEl.createEl("h3", { text: "\u6807\u6CE8\u4E0E\u6279\u6CE8" });
     this.addTextSetting(
       "\u6807\u6CE8\u9AD8\u4EAE\u989C\u8272",
@@ -1854,7 +1878,7 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
   addTextSetting(name, desc, key, placeholder) {
     new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addText(
       (text) => text.setPlaceholder(placeholder).setValue(this.plugin.settings[key]).onChange(async (v) => {
-        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : key === "tocPanelHotkey" ? DEFAULT_SETTINGS.tocPanelHotkey : key === "chapterTitleRegex" ? DEFAULT_SETTINGS.chapterTitleRegex : "";
+        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : key === "tocPanelHotkey" ? DEFAULT_SETTINGS.tocPanelHotkey : key === "previousPageHotkey" ? DEFAULT_SETTINGS.previousPageHotkey : key === "nextPageHotkey" ? DEFAULT_SETTINGS.nextPageHotkey : key === "chapterTitleRegex" ? DEFAULT_SETTINGS.chapterTitleRegex : "";
         this.plugin.settings[key] = v.trim() || fallback;
         await this.plugin.savePluginData();
         this.refreshOpenReaders();
