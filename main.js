@@ -443,6 +443,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.currentPageEnd = this.measurePageEnd(this.currentPageStart);
     this.paintPage(this.currentPageStart, this.currentPageEnd);
     this.trimPaintedPageToFit();
+    this.fillPaintedPageToFit();
     this.updatePageMeta();
     this.scheduleProgressSave();
     this.isRenderingPage = false;
@@ -629,6 +630,56 @@ var ReaderView = class extends import_obsidian.ItemView {
       this.paintPage(this.currentPageStart, this.currentPageEnd);
       guard++;
     }
+  }
+  /**
+   * trimPaintedPageToFit() only removes overflowing text. If measuring stopped at
+   * the previous paragraph boundary, try to pull the next paragraph's first
+   * complete lines into the current page without crossing the chapter boundary.
+   */
+  fillPaintedPageToFit() {
+    if (this.isContentOverflowing()) return;
+    const fillLimit = this.getCurrentPageFillLimit();
+    if (this.comparePositions(this.currentPageEnd, fillLimit) >= 0) return;
+    let best = this.currentPageEnd;
+    let probe = this.clampPosition(best);
+    for (let pi = probe.paraIndex; pi < Math.min(fillLimit.paraIndex + 1, this.paragraphs.length); pi++) {
+      if (pi > fillLimit.paraIndex) break;
+      const paragraph = this.paragraphs[pi];
+      const begin = pi === probe.paraIndex ? probe.charOffset : 0;
+      const high = pi === fillLimit.paraIndex ? fillLimit.charOffset : paragraph.length;
+      if (high <= begin) continue;
+      const fullCandidate = this.clampPosition({ paraIndex: pi, charOffset: high });
+      this.paintPage(this.currentPageStart, fullCandidate);
+      if (!this.isContentOverflowing()) {
+        best = fullCandidate;
+        continue;
+      }
+      let low = begin + 1;
+      let upper = high;
+      let localBest = null;
+      while (low <= upper) {
+        const mid = Math.floor((low + upper) / 2);
+        const candidate = this.clampPosition({ paraIndex: pi, charOffset: mid });
+        this.paintPage(this.currentPageStart, candidate);
+        if (this.isContentOverflowing()) {
+          upper = mid - 1;
+        } else {
+          localBest = candidate;
+          low = mid + 1;
+        }
+      }
+      if (localBest !== null) best = localBest;
+      break;
+    }
+    this.currentPageEnd = best;
+    this.paintPage(this.currentPageStart, this.currentPageEnd);
+  }
+  getCurrentPageFillLimit() {
+    const chapterEndPara = this.getChapterEndPara(this.currentPageStart.paraIndex);
+    if (chapterEndPara !== null) {
+      return this.clampPosition({ paraIndex: chapterEndPara, charOffset: 0 });
+    }
+    return { paraIndex: this.paragraphs.length, charOffset: 0 };
   }
   /**
    * 返回当前溢出段落中最后一条「完整可见行」结束的字符偏移。
