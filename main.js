@@ -2163,7 +2163,7 @@ var TxtFileSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
   }
   /** 获取仓库中全部 .txt 文件 */
   getItems() {
-    return this.app.vault.getFiles().filter((f) => f.extension === "txt");
+    return this.plugin.getSelectableBookFiles();
   }
   /** 显示文件路径作为选项文本 */
   getItemText(item) {
@@ -2423,6 +2423,18 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     if ((0, import_path.isAbsolute)(raw)) return raw;
     const vaultBasePath = (_a = this.app.vault.adapter.basePath) != null ? _a : "";
     return (0, import_path.join)(vaultBasePath, raw);
+  }
+  getSelectableBookFiles() {
+    var _a;
+    const txtFiles = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === "txt");
+    const libraryPath = this.resolveBookLibraryPath();
+    if (!libraryPath) return txtFiles;
+    const vaultBasePath = (_a = this.app.vault.adapter.basePath) != null ? _a : "";
+    const normalizedLibraryPath = (0, import_path.resolve)(libraryPath).toLowerCase();
+    return txtFiles.filter((file) => {
+      const parentPath = (0, import_path.dirname)((0, import_path.resolve)(vaultBasePath, file.path)).toLowerCase();
+      return parentPath === normalizedLibraryPath;
+    });
   }
   getPluginDir() {
     var _a;

@@ -2,7 +2,7 @@ import { Plugin, TFile, FuzzySuggestModal, WorkspaceLeaf, normalizePath } from '
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { dirname, isAbsolute, join } from 'path';
+import { dirname, isAbsolute, join, resolve } from 'path';
 
 const execAsync = promisify(exec);
 import { ReaderView, READER_VIEW_TYPE } from './ReaderView';
@@ -33,7 +33,7 @@ class TxtFileSuggestModal extends FuzzySuggestModal<TFile> {
 
   /** 获取仓库中全部 .txt 文件 */
   getItems(): TFile[] {
-    return this.app.vault.getFiles().filter((f) => f.extension === 'txt');
+    return this.plugin.getSelectableBookFiles();
   }
 
   /** 显示文件路径作为选项文本 */
@@ -341,6 +341,19 @@ export default class PuffsReaderPlugin extends Plugin {
     if (isAbsolute(raw)) return raw;
     const vaultBasePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
     return join(vaultBasePath, raw);
+  }
+
+  getSelectableBookFiles(): TFile[] {
+    const txtFiles = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'txt');
+    const libraryPath = this.resolveBookLibraryPath();
+    if (!libraryPath) return txtFiles;
+
+    const vaultBasePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
+    const normalizedLibraryPath = resolve(libraryPath).toLowerCase();
+    return txtFiles.filter((file) => {
+      const parentPath = dirname(resolve(vaultBasePath, file.path)).toLowerCase();
+      return parentPath === normalizedLibraryPath;
+    });
   }
 
   private getPluginDir(): string {
