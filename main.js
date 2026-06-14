@@ -2235,6 +2235,7 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
    * 通过 setViewState 将文件路径传递给 ReaderView。
    */
   async openInReader(file) {
+    await this.markBookAsRecentlyRead(file.path);
     const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({
       type: READER_VIEW_TYPE,
@@ -2425,15 +2426,19 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     return (0, import_path.join)(vaultBasePath, raw);
   }
   getSelectableBookFiles() {
-    var _a;
     const txtFiles = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === "txt");
     const libraryPath = this.resolveBookLibraryPath();
-    if (!libraryPath) return txtFiles;
-    const vaultBasePath = (_a = this.app.vault.adapter.basePath) != null ? _a : "";
-    const normalizedLibraryPath = (0, import_path.resolve)(libraryPath).toLowerCase();
-    return txtFiles.filter((file) => {
+    const selectableFiles = libraryPath ? txtFiles.filter((file) => {
+      var _a;
+      const vaultBasePath = (_a = this.app.vault.adapter.basePath) != null ? _a : "";
+      const normalizedLibraryPath = (0, import_path.resolve)(libraryPath).toLowerCase();
       const parentPath = (0, import_path.dirname)((0, import_path.resolve)(vaultBasePath, file.path)).toLowerCase();
       return parentPath === normalizedLibraryPath;
+    }) : txtFiles;
+    return selectableFiles.sort((a, b) => {
+      var _a, _b, _c, _d;
+      const lastReadDiff = ((_b = (_a = this.progress[b.path]) == null ? void 0 : _a.lastRead) != null ? _b : 0) - ((_d = (_c = this.progress[a.path]) == null ? void 0 : _c.lastRead) != null ? _d : 0);
+      return lastReadDiff || a.path.localeCompare(b.path, "zh-CN", { numeric: true });
     });
   }
   getPluginDir() {
@@ -2443,6 +2448,16 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
   // ═══════════════════════════ 阅读进度 ═══════════════════════════
   getProgress(filePath) {
     return this.progress[filePath];
+  }
+  async markBookAsRecentlyRead(filePath) {
+    var _a, _b;
+    const saved = this.progress[filePath];
+    this.progress[filePath] = {
+      paragraphIndex: (_a = saved == null ? void 0 : saved.paragraphIndex) != null ? _a : 0,
+      charOffset: (_b = saved == null ? void 0 : saved.charOffset) != null ? _b : 0,
+      lastRead: Date.now()
+    };
+    await this.savePluginData();
   }
   async saveProgress(filePath, progress) {
     this.progress[filePath] = progress;

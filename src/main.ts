@@ -127,6 +127,7 @@ export default class PuffsReaderPlugin extends Plugin {
    * 通过 setViewState 将文件路径传递给 ReaderView。
    */
   async openInReader(file: TFile): Promise<void> {
+    await this.markBookAsRecentlyRead(file.path);
     const leaf: WorkspaceLeaf = this.app.workspace.getLeaf('tab');
     await leaf.setViewState({
       type: READER_VIEW_TYPE,
@@ -346,13 +347,18 @@ export default class PuffsReaderPlugin extends Plugin {
   getSelectableBookFiles(): TFile[] {
     const txtFiles = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'txt');
     const libraryPath = this.resolveBookLibraryPath();
-    if (!libraryPath) return txtFiles;
+    const selectableFiles = libraryPath
+      ? txtFiles.filter((file) => {
+          const vaultBasePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
+          const normalizedLibraryPath = resolve(libraryPath).toLowerCase();
+          const parentPath = dirname(resolve(vaultBasePath, file.path)).toLowerCase();
+          return parentPath === normalizedLibraryPath;
+        })
+      : txtFiles;
 
-    const vaultBasePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
-    const normalizedLibraryPath = resolve(libraryPath).toLowerCase();
-    return txtFiles.filter((file) => {
-      const parentPath = dirname(resolve(vaultBasePath, file.path)).toLowerCase();
-      return parentPath === normalizedLibraryPath;
+    return selectableFiles.sort((a, b) => {
+      const lastReadDiff = (this.progress[b.path]?.lastRead ?? 0) - (this.progress[a.path]?.lastRead ?? 0);
+      return lastReadDiff || a.path.localeCompare(b.path, 'zh-CN', { numeric: true });
     });
   }
 
@@ -364,6 +370,16 @@ export default class PuffsReaderPlugin extends Plugin {
 
   getProgress(filePath: string): BookProgress | undefined {
     return this.progress[filePath];
+  }
+
+  private async markBookAsRecentlyRead(filePath: string): Promise<void> {
+    const saved = this.progress[filePath];
+    this.progress[filePath] = {
+      paragraphIndex: saved?.paragraphIndex ?? 0,
+      charOffset: saved?.charOffset ?? 0,
+      lastRead: Date.now(),
+    };
+    await this.savePluginData();
   }
 
   async saveProgress(filePath: string, progress: BookProgress): Promise<void> {
