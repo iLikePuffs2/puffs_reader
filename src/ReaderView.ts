@@ -6,7 +6,6 @@ import {
   Menu,
   Notice,
   normalizePath,
-  prepareFuzzySearch,
   TFile,
   ViewStateResult,
   WorkspaceLeaf,
@@ -2210,13 +2209,119 @@ interface ChapterChoice {
   index: number;
 }
 
+interface ChapterSearchCandidate {
+  choice: ChapterChoice;
+  textTargets: string[];
+  numberTargets: string[];
+}
+
+function normalizeChapterSearchText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function parseChapterSearchNumber(raw: string): number {
+  const text = raw.trim();
+  if (!text) return 0;
+  if (/^\d+$/.test(text)) return Number(text);
+
+  const digits: Record<string, number> = {
+    零: 0,
+    〇: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+  const smallUnits: Record<string, number> = { 十: 10, 百: 100, 千: 1000 };
+  const largeUnits: Record<string, number> = { 万: 10000, 亿: 100000000 };
+
+  const allDigits = [...text].every((ch) => ch in digits);
+  if (allDigits && text.length >= 2) {
+    let result = 0;
+    for (const ch of text) result = result * 10 + digits[ch];
+    return result;
+  }
+
+  let total = 0;
+  let section = 0;
+  let number = 0;
+  for (const ch of text) {
+    if (ch in digits) {
+      number = digits[ch];
+    } else if (ch in smallUnits) {
+      section += (number || 1) * smallUnits[ch];
+      number = 0;
+    } else if (ch in largeUnits) {
+      section += number;
+      total += (section || 1) * largeUnits[ch];
+      section = 0;
+      number = 0;
+    } else {
+      return 0;
+    }
+  }
+
+  return total + section + number;
+}
+
+function normalizeChapterSearchNumber(raw: string): string | null {
+  const normalized = raw.trim();
+  if (!normalized) return null;
+  const parsed = parseChapterSearchNumber(normalized);
+  if (parsed > 0 || /^0+$/.test(normalized)) return String(parsed);
+  return null;
+}
+
+function getChapterSearchNumberTokens(text: string): string[] {
+  const result = new Set<string>();
+  for (const match of text.matchAll(/[零〇一二两三四五六七八九十百千万亿\d]+/g)) {
+    const token = match[0];
+    if (/^\d+$/.test(token)) {
+      result.add(String(Number(token)));
+      result.add(token);
+      continue;
+    }
+    const normalized = normalizeChapterSearchNumber(token);
+    if (normalized) result.add(normalized);
+  }
+  return [...result];
+}
+
+function buildChapterSearchCandidate(choice: ChapterChoice): ChapterSearchCandidate {
+  const title = normalizeChapterSearchText(choice.chapter.title);
+  const rawTitle = normalizeChapterSearchText(choice.chapter.rawTitle);
+  return {
+    choice,
+    textTargets: [title, rawTitle],
+    numberTargets: getChapterSearchNumberTokens(`${choice.chapter.title} ${choice.chapter.rawTitle}`),
+  };
+}
+
+function getChapterSearchRank(candidate: ChapterSearchCandidate, query: string, numericQuery: string | null): number {
+  if (numericQuery) {
+    if (candidate.numberTargets.some((target) => target === numericQuery)) return 0;
+    if (candidate.numberTargets.some((target) => target.startsWith(numericQuery))) return 1;
+    if (candidate.numberTargets.some((target) => target.includes(numericQuery))) return 2;
+  }
+  if (candidate.textTargets.some((target) => target.includes(query))) return numericQuery ? 3 : 0;
+  return Number.POSITIVE_INFINITY;
+}
+
 class ChapterInputSuggest extends AbstractInputSuggest<ChapterChoice> {
-  private choices: ChapterChoice[];
+  private candidates: ChapterSearchCandidate[];
   private preferredIndex: number;
 
   constructor(app: App, inputEl: HTMLInputElement, chapters: Chapter[], preferredIndex: number) {
     super(app, inputEl);
-    this.choices = chapters.map((chapter, index) => ({ chapter, index }));
+    this.candidates = chapters
+      .map((chapter, index) => ({ chapter, index }))
+      .map((choice) => buildChapterSearchCandidate(choice));
     this.preferredIndex = preferredIndex;
     this.limit = 100;
   }
@@ -2228,22 +2333,25 @@ class ChapterInputSuggest extends AbstractInputSuggest<ChapterChoice> {
   protected getSuggestions(query: string): ChapterChoice[] {
     const normalized = query.trim();
     if (!normalized) {
-      return [...this.choices].sort((a, b) => {
-        if (a.index === this.preferredIndex) return -1;
-        if (b.index === this.preferredIndex) return 1;
-        return a.index - b.index;
-      });
+      return [...this.candidates]
+        .sort((a, b) => {
+          if (a.choice.index === this.preferredIndex) return -1;
+          if (b.choice.index === this.preferredIndex) return 1;
+          return a.choice.index - b.choice.index;
+        })
+        .map((candidate) => candidate.choice);
     }
 
-    const search = prepareFuzzySearch(normalized);
-    return this.choices
-      .map((choice) => ({
-        choice,
-        match: search(`${choice.chapter.title} ${choice.chapter.rawTitle}`),
+    const textQuery = normalizeChapterSearchText(normalized);
+    const numericQuery = normalizeChapterSearchNumber(normalized);
+    return this.candidates
+      .map((candidate) => ({
+        candidate,
+        rank: getChapterSearchRank(candidate, textQuery, numericQuery),
       }))
-      .filter((item) => item.match !== null)
-      .sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0))
-      .map((item) => item.choice);
+      .filter((item) => Number.isFinite(item.rank))
+      .sort((a, b) => a.rank - b.rank || a.candidate.choice.index - b.candidate.choice.index)
+      .map((item) => item.candidate.choice);
   }
 
   renderSuggestion(choice: ChapterChoice, el: HTMLElement): void {

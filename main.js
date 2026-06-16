@@ -1926,10 +1926,98 @@ var ReaderView = class extends import_obsidian.ItemView {
     return `${prefix}${baseName}-${Date.now()}.md`;
   }
 };
+function normalizeChapterSearchText(value) {
+  return value.trim().toLowerCase();
+}
+function parseChapterSearchNumber(raw) {
+  const text = raw.trim();
+  if (!text) return 0;
+  if (/^\d+$/.test(text)) return Number(text);
+  const digits = {
+    \u96F6: 0,
+    "\u3007": 0,
+    \u4E00: 1,
+    \u4E8C: 2,
+    \u4E24: 2,
+    \u4E09: 3,
+    \u56DB: 4,
+    \u4E94: 5,
+    \u516D: 6,
+    \u4E03: 7,
+    \u516B: 8,
+    \u4E5D: 9
+  };
+  const smallUnits = { \u5341: 10, \u767E: 100, \u5343: 1e3 };
+  const largeUnits = { \u4E07: 1e4, \u4EBF: 1e8 };
+  const allDigits = [...text].every((ch) => ch in digits);
+  if (allDigits && text.length >= 2) {
+    let result = 0;
+    for (const ch of text) result = result * 10 + digits[ch];
+    return result;
+  }
+  let total = 0;
+  let section = 0;
+  let number = 0;
+  for (const ch of text) {
+    if (ch in digits) {
+      number = digits[ch];
+    } else if (ch in smallUnits) {
+      section += (number || 1) * smallUnits[ch];
+      number = 0;
+    } else if (ch in largeUnits) {
+      section += number;
+      total += (section || 1) * largeUnits[ch];
+      section = 0;
+      number = 0;
+    } else {
+      return 0;
+    }
+  }
+  return total + section + number;
+}
+function normalizeChapterSearchNumber(raw) {
+  const normalized = raw.trim();
+  if (!normalized) return null;
+  const parsed = parseChapterSearchNumber(normalized);
+  if (parsed > 0 || /^0+$/.test(normalized)) return String(parsed);
+  return null;
+}
+function getChapterSearchNumberTokens(text) {
+  const result = /* @__PURE__ */ new Set();
+  for (const match of text.matchAll(/[零〇一二两三四五六七八九十百千万亿\d]+/g)) {
+    const token = match[0];
+    if (/^\d+$/.test(token)) {
+      result.add(String(Number(token)));
+      result.add(token);
+      continue;
+    }
+    const normalized = normalizeChapterSearchNumber(token);
+    if (normalized) result.add(normalized);
+  }
+  return [...result];
+}
+function buildChapterSearchCandidate(choice) {
+  const title = normalizeChapterSearchText(choice.chapter.title);
+  const rawTitle = normalizeChapterSearchText(choice.chapter.rawTitle);
+  return {
+    choice,
+    textTargets: [title, rawTitle],
+    numberTargets: getChapterSearchNumberTokens(`${choice.chapter.title} ${choice.chapter.rawTitle}`)
+  };
+}
+function getChapterSearchRank(candidate, query, numericQuery) {
+  if (numericQuery) {
+    if (candidate.numberTargets.some((target) => target === numericQuery)) return 0;
+    if (candidate.numberTargets.some((target) => target.startsWith(numericQuery))) return 1;
+    if (candidate.numberTargets.some((target) => target.includes(numericQuery))) return 2;
+  }
+  if (candidate.textTargets.some((target) => target.includes(query))) return numericQuery ? 3 : 0;
+  return Number.POSITIVE_INFINITY;
+}
 var ChapterInputSuggest = class extends import_obsidian.AbstractInputSuggest {
   constructor(app, inputEl, chapters, preferredIndex) {
     super(app, inputEl);
-    this.choices = chapters.map((chapter, index) => ({ chapter, index }));
+    this.candidates = chapters.map((chapter, index) => ({ chapter, index })).map((choice) => buildChapterSearchCandidate(choice));
     this.preferredIndex = preferredIndex;
     this.limit = 100;
   }
@@ -1939,20 +2027,18 @@ var ChapterInputSuggest = class extends import_obsidian.AbstractInputSuggest {
   getSuggestions(query) {
     const normalized = query.trim();
     if (!normalized) {
-      return [...this.choices].sort((a, b) => {
-        if (a.index === this.preferredIndex) return -1;
-        if (b.index === this.preferredIndex) return 1;
-        return a.index - b.index;
-      });
+      return [...this.candidates].sort((a, b) => {
+        if (a.choice.index === this.preferredIndex) return -1;
+        if (b.choice.index === this.preferredIndex) return 1;
+        return a.choice.index - b.choice.index;
+      }).map((candidate) => candidate.choice);
     }
-    const search = (0, import_obsidian.prepareFuzzySearch)(normalized);
-    return this.choices.map((choice) => ({
-      choice,
-      match: search(`${choice.chapter.title} ${choice.chapter.rawTitle}`)
-    })).filter((item) => item.match !== null).sort((a, b) => {
-      var _a, _b, _c, _d;
-      return ((_b = (_a = b.match) == null ? void 0 : _a.score) != null ? _b : 0) - ((_d = (_c = a.match) == null ? void 0 : _c.score) != null ? _d : 0);
-    }).map((item) => item.choice);
+    const textQuery = normalizeChapterSearchText(normalized);
+    const numericQuery = normalizeChapterSearchNumber(normalized);
+    return this.candidates.map((candidate) => ({
+      candidate,
+      rank: getChapterSearchRank(candidate, textQuery, numericQuery)
+    })).filter((item) => Number.isFinite(item.rank)).sort((a, b) => a.rank - b.rank || a.candidate.choice.index - b.candidate.choice.index).map((item) => item.candidate.choice);
   }
   renderSuggestion(choice, el) {
     el.createDiv({ cls: "puffs-chapter-copy-suggestion", text: choice.chapter.title });
