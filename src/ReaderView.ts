@@ -47,7 +47,7 @@ interface ReadingStatsPageRange {
   endOffset: number;
 }
 
-const DEFAULT_READING_STATS_PAGE_MIN_MS = 3000;
+const DEFAULT_READING_STATS_PAGE_MIN_MS = 100;
 const DEFAULT_READING_STATS_IDLE_LIMIT_MS = 2 * 60 * 1000;
 
 /**
@@ -483,15 +483,13 @@ export class ReaderView extends ItemView {
 
   /** 章节标题后面的空行只会拉开章节名和正文第一段，这里直接清理掉。 */
   private removeBlankLinesAfterChapter(lines: string[]): string[] {
-    const tocRegexText = this.getEffectiveTocRegex();
-    if (!tocRegexText) return lines;
-
-    let tocRegex: RegExp;
+    let regexes: RegExp[];
     try {
-      tocRegex = new RegExp(tocRegexText);
+      regexes = this.getChapterMatchRegexes();
     } catch {
       return lines;
     }
+    if (regexes.length === 0) return lines;
 
     const cleaned: string[] = [];
     let previousWasChapter = false;
@@ -500,7 +498,7 @@ export class ReaderView extends ItemView {
       if (previousWasChapter && trimmed === '') continue;
 
       cleaned.push(line);
-      previousWasChapter = trimmed !== '' && tocRegex.test(trimmed);
+      previousWasChapter = trimmed !== '' && regexes.some((regex) => regex.test(trimmed));
     }
     return cleaned;
   }
@@ -1189,19 +1187,18 @@ export class ReaderView extends ItemView {
   private parseChapters(): void {
     this.chapters = [];
     this.collapsedTocGroups.clear();
-    const tocRegexText = this.getEffectiveTocRegex();
-    if (!tocRegexText) return;
 
-    let regex: RegExp;
+    let regexes: RegExp[];
     try {
-      regex = new RegExp(tocRegexText);
+      regexes = this.getChapterMatchRegexes();
     } catch {
       return;
     }
+    if (regexes.length === 0) return;
 
     for (let i = 0; i < this.paragraphs.length; i++) {
       const line = this.paragraphs[i].trim();
-      if (line && regex.test(line)) {
+      if (line && regexes.some((regex) => regex.test(line))) {
         this.chapters.push({
           title: this.extractChapterTitle(line),
           rawTitle: line,
@@ -1254,6 +1251,14 @@ export class ReaderView extends ItemView {
       if (captured) return captured;
     } catch {
       // 正则错误时回退原始章节行，避免目录消失。
+    }
+    try {
+      const match = line.match(new RegExp(this.getEffectivePrologueTitleRegex()));
+      const captured = match?.slice(1).find((part) => part && part.trim().length > 0)?.trim();
+      if (captured) return captured;
+      if (match) return line.trim();
+    } catch {
+      // 序章匹配错误时回退原始章节行。
     }
     return line;
   }
@@ -1599,6 +1604,12 @@ export class ReaderView extends ItemView {
       this.buildTocList();
       this.updatePageMeta();
     });
+    this.addTextRow(p, '序章匹配', bookSettings.prologueTitleRegex ?? this.plugin.settings.prologueTitleRegex, (v) => {
+      this.updateBookSettings({ prologueTitleRegex: v || undefined });
+      this.parseChapters();
+      this.buildTocList();
+      this.updatePageMeta();
+    });
 
     this.addTocIndentRows(p, bookSettings);
 
@@ -1759,6 +1770,17 @@ export class ReaderView extends ItemView {
 
   private getEffectiveTocRegex(): string {
     return this.getBookSettings().tocRegex ?? this.plugin.settings.tocRegex;
+  }
+
+  private getEffectivePrologueTitleRegex(): string {
+    return this.getBookSettings().prologueTitleRegex ?? this.plugin.settings.prologueTitleRegex;
+  }
+
+  private getChapterMatchRegexes(): RegExp[] {
+    return [this.getEffectiveTocRegex(), this.getEffectivePrologueTitleRegex()]
+      .map((regexText) => regexText.trim())
+      .filter((regexText) => regexText.length > 0)
+      .map((regexText) => new RegExp(regexText));
   }
 
   private normalizeChapterNumber(raw: string): string {

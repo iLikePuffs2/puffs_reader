@@ -42,8 +42,9 @@ var SUPPORTED_ENCODINGS = [
   { value: "shift_jis", label: "Shift_JIS" },
   { value: "euc-kr", label: "EUC-KR" }
 ];
-var DEFAULT_TOC_REGEX = "^\\s*(?:\u7B2C[\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*|(?:\u5E8F\u7AE0|\u6954\u5B50|\u5F15\u5B50)(?:\\s+.*)?)$";
-var DEFAULT_CHAPTER_TITLE_REGEX = "^\\s*(?:\u7B2C([\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+)([\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7])\\s*(.*)|((?:\u5E8F\u7AE0|\u6954\u5B50|\u5F15\u5B50)(?:\\s+.*)?))$";
+var DEFAULT_TOC_REGEX = "^\\s*\u7B2C[\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*$";
+var DEFAULT_CHAPTER_TITLE_REGEX = "^\\s*\u7B2C([\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+)([\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7])\\s*(.*)$";
+var DEFAULT_PROLOGUE_TITLE_REGEX = "^\\s*(?:\u5E8F\u7AE0|\u524D\u8A00|\u6954\u5B50|\u5F15\u5B50)(?:\\s+.*)?$";
 var DEFAULT_SETTINGS = {
   fontSize: 18,
   lineHeight: 1.8,
@@ -73,6 +74,7 @@ var DEFAULT_SETTINGS = {
   nextPageHotkey: "l",
   tocRegex: DEFAULT_TOC_REGEX,
   chapterTitleRegex: DEFAULT_CHAPTER_TITLE_REGEX,
+  prologueTitleRegex: DEFAULT_PROLOGUE_TITLE_REGEX,
   defaultEncoding: "utf-8",
   searchHotkey: "Ctrl+F",
   tocPanelHotkey: "Ctrl+B",
@@ -85,13 +87,13 @@ var DEFAULT_SETTINGS = {
   dataBackupPath: "",
   dataBackupFrequencyHours: 24,
   bookLibraryPath: "",
-  readingStatsMinPageMs: 3e3,
+  readingStatsMinPageMs: 100,
   readingStatsIdleLimitMs: 12e4
 };
 
 // src/ReaderView.ts
 var READER_VIEW_TYPE = "puffs-reader-view";
-var DEFAULT_READING_STATS_PAGE_MIN_MS = 3e3;
+var DEFAULT_READING_STATS_PAGE_MIN_MS = 100;
 var DEFAULT_READING_STATS_IDLE_LIMIT_MS = 2 * 60 * 1e3;
 var ReaderView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
@@ -443,21 +445,20 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   /** 章节标题后面的空行只会拉开章节名和正文第一段，这里直接清理掉。 */
   removeBlankLinesAfterChapter(lines) {
-    const tocRegexText = this.getEffectiveTocRegex();
-    if (!tocRegexText) return lines;
-    let tocRegex;
+    let regexes;
     try {
-      tocRegex = new RegExp(tocRegexText);
+      regexes = this.getChapterMatchRegexes();
     } catch (e) {
       return lines;
     }
+    if (regexes.length === 0) return lines;
     const cleaned = [];
     let previousWasChapter = false;
     for (const line of lines) {
       const trimmed = line.trim();
       if (previousWasChapter && trimmed === "") continue;
       cleaned.push(line);
-      previousWasChapter = trimmed !== "" && tocRegex.test(trimmed);
+      previousWasChapter = trimmed !== "" && regexes.some((regex) => regex.test(trimmed));
     }
     return cleaned;
   }
@@ -1046,17 +1047,16 @@ var ReaderView = class extends import_obsidian.ItemView {
   parseChapters() {
     this.chapters = [];
     this.collapsedTocGroups.clear();
-    const tocRegexText = this.getEffectiveTocRegex();
-    if (!tocRegexText) return;
-    let regex;
+    let regexes;
     try {
-      regex = new RegExp(tocRegexText);
+      regexes = this.getChapterMatchRegexes();
     } catch (e) {
       return;
     }
+    if (regexes.length === 0) return;
     for (let i = 0; i < this.paragraphs.length; i++) {
       const line = this.paragraphs[i].trim();
-      if (line && regex.test(line)) {
+      if (line && regexes.some((regex) => regex.test(line))) {
         this.chapters.push({
           title: this.extractChapterTitle(line),
           rawTitle: line,
@@ -1093,7 +1093,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     }
   }
   extractChapterTitle(line) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const customRegex = (_a = this.getBookSettings().chapterTitleRegex) != null ? _a : this.plugin.settings.chapterTitleRegex;
     try {
       const match = line.match(new RegExp(customRegex));
@@ -1104,6 +1104,13 @@ var ReaderView = class extends import_obsidian.ItemView {
       }
       const captured = (_c = match == null ? void 0 : match.slice(1).find((part) => part && part.trim().length > 0)) == null ? void 0 : _c.trim();
       if (captured) return captured;
+    } catch (e) {
+    }
+    try {
+      const match = line.match(new RegExp(this.getEffectivePrologueTitleRegex()));
+      const captured = (_d = match == null ? void 0 : match.slice(1).find((part) => part && part.trim().length > 0)) == null ? void 0 : _d.trim();
+      if (captured) return captured;
+      if (match) return line.trim();
     } catch (e) {
     }
     return line;
@@ -1369,7 +1376,7 @@ var ReaderView = class extends import_obsidian.ItemView {
     this.clearSearchInput();
   }
   refreshTypographyPanel() {
-    var _a;
+    var _a, _b;
     const p = this.typographyPanel;
     p.empty();
     const bookSettings = this.getBookSettings();
@@ -1405,6 +1412,12 @@ var ReaderView = class extends import_obsidian.ItemView {
     });
     this.addTextRow(p, "\u7AE0\u540D\u6B63\u5219", (_a = bookSettings.chapterTitleRegex) != null ? _a : this.plugin.settings.chapterTitleRegex, (v) => {
       this.updateBookSettings({ chapterTitleRegex: v || void 0 });
+      this.parseChapters();
+      this.buildTocList();
+      this.updatePageMeta();
+    });
+    this.addTextRow(p, "\u5E8F\u7AE0\u5339\u914D", (_b = bookSettings.prologueTitleRegex) != null ? _b : this.plugin.settings.prologueTitleRegex, (v) => {
+      this.updateBookSettings({ prologueTitleRegex: v || void 0 });
       this.parseChapters();
       this.buildTocList();
       this.updatePageMeta();
@@ -1547,6 +1560,13 @@ var ReaderView = class extends import_obsidian.ItemView {
   getEffectiveTocRegex() {
     var _a;
     return (_a = this.getBookSettings().tocRegex) != null ? _a : this.plugin.settings.tocRegex;
+  }
+  getEffectivePrologueTitleRegex() {
+    var _a;
+    return (_a = this.getBookSettings().prologueTitleRegex) != null ? _a : this.plugin.settings.prologueTitleRegex;
+  }
+  getChapterMatchRegexes() {
+    return [this.getEffectiveTocRegex(), this.getEffectivePrologueTitleRegex()].map((regexText) => regexText.trim()).filter((regexText) => regexText.length > 0).map((regexText) => new RegExp(regexText));
   }
   normalizeChapterNumber(raw) {
     if (/^\d+$/.test(raw)) return String(Number(raw));
@@ -2614,23 +2634,24 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
       "\u8BA1\u5165\u5DF2\u8BFB\u505C\u7559\u65F6\u95F4",
       "\u9875\u9762\u81F3\u5C11\u505C\u7559\u591A\u4E45\u540E\uFF0C\u624D\u8BA1\u5165\u5DF2\u8BFB\u5B57\u6570\u548C\u5DF2\u8BFB\u7AE0\u8282\u3002",
       "readingStatsMinPageMs",
-      500,
+      100,
       6e4,
-      500,
+      100,
       "ms"
     );
-    this.addNumberSetting(
+    this.addNumberSettingInMinutes(
       "\u9605\u8BFB\u8BA1\u65F6\u7A7A\u95F2\u622A\u6B62",
       "\u5728\u540C\u4E00\u9875\u505C\u7559\u8D85\u8FC7\u591A\u4E45\u540E\uFF0C\u505C\u6B62\u7EE7\u7EED\u7D2F\u8BA1\u9605\u8BFB\u65F6\u957F\uFF0C\u76F4\u5230\u4E0B\u4E00\u6B21\u7FFB\u9875\u6216\u8DF3\u8F6C\u3002",
       "readingStatsIdleLimitMs",
-      1e4,
-      6e5,
-      5e3,
-      "ms"
+      1,
+      60,
+      1,
+      "min"
     );
     containerEl.createEl("h3", { text: "\u76EE\u5F55\u4E0E\u7F16\u7801" });
     this.addTextSetting("\u76EE\u5F55\u5339\u914D\u6B63\u5219", "\u6240\u6709\u4E66\u7C4D\u9ED8\u8BA4\u7AE0\u8282\u5339\u914D\u6B63\u5219\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "tocRegex", DEFAULT_SETTINGS.tocRegex);
     this.addTextSetting("\u7AE0\u540D\u63D0\u53D6\u6B63\u5219", "\u4ECE\u7AE0\u8282\u884C\u4E2D\u63D0\u53D6\u663E\u793A\u6807\u9898\u7684\u6B63\u5219\uFF08\u9700\u542B\u6355\u83B7\u7EC4\uFF09\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "chapterTitleRegex", DEFAULT_SETTINGS.chapterTitleRegex);
+    this.addTextSetting("\u5E8F\u7AE0\u5339\u914D\u540D\u79F0", "\u5339\u914D\u5E8F\u7AE0\u3001\u524D\u8A00\u3001\u6954\u5B50\u7B49\u4E0D\u5E26\u201C\u7B2C\u51E0\u7AE0\u201D\u7684\u6807\u9898\uFF1B\u5355\u4E66\u8BBE\u7F6E\u53EF\u8986\u5199\u3002", "prologueTitleRegex", DEFAULT_SETTINGS.prologueTitleRegex);
     new import_obsidian2.Setting(containerEl).setName("\u9ED8\u8BA4\u7F16\u7801").setDesc("\u6253\u5F00\u6587\u4EF6\u65F6\u7684\u9ED8\u8BA4\u7F16\u7801\uFF08\u81EA\u52A8\u68C0\u6D4B\u5931\u8D25\u65F6\u4F7F\u7528\uFF09").addDropdown(
       (dd) => dd.addOptions({
         "utf-8": "UTF-8",
@@ -2737,19 +2758,60 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
         if (isSyncing) return;
         save(v, true);
       })
-    ).addText(
-      (text) => (textControl = text).setValue(String(this.plugin.settings[key])).setPlaceholder(unit).onChange((v) => {
+    ).addText((text) => {
+      textControl = text;
+      const unitEl = document.createElement("span");
+      unitEl.className = "puffs-setting-unit";
+      unitEl.textContent = unit;
+      text.inputEl.insertAdjacentElement("afterend", unitEl);
+      return text.setValue(String(this.plugin.settings[key])).setPlaceholder(unit).onChange((v) => {
         if (isSyncing) return;
         const n = Number(v);
         if (Number.isNaN(n)) return;
         save(n, false);
+      });
+    });
+  }
+  addNumberSettingInMinutes(name, desc, key, min, max, step, unit) {
+    let sliderControl = null;
+    let textControl = null;
+    let isSyncing = false;
+    const toMinutes = (valueMs) => Math.round(valueMs / 6e4);
+    const clamp = (value) => Math.min(max, Math.max(min, value));
+    const save = async (valueMinutes, syncText) => {
+      const nextMinutes = clamp(valueMinutes);
+      this.plugin.settings[key] = nextMinutes * 6e4;
+      isSyncing = true;
+      sliderControl == null ? void 0 : sliderControl.setValue(nextMinutes);
+      if (syncText) textControl == null ? void 0 : textControl.setValue(String(nextMinutes));
+      isSyncing = false;
+      await this.plugin.savePluginData();
+      this.refreshOpenReaders();
+    };
+    const currentMinutes = clamp(toMinutes(Number(this.plugin.settings[key])));
+    new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addSlider(
+      (slider) => (sliderControl = slider).setLimits(min, max, step).setValue(currentMinutes).setDynamicTooltip().onChange((v) => {
+        if (isSyncing) return;
+        save(v, true);
       })
-    );
+    ).addText((text) => {
+      textControl = text;
+      const unitEl = document.createElement("span");
+      unitEl.className = "puffs-setting-unit";
+      unitEl.textContent = unit;
+      text.inputEl.insertAdjacentElement("afterend", unitEl);
+      return text.setValue(String(currentMinutes)).setPlaceholder(unit).onChange((v) => {
+        if (isSyncing) return;
+        const n = Number(v);
+        if (Number.isNaN(n)) return;
+        save(n, false);
+      });
+    });
   }
   addTextSetting(name, desc, key, placeholder) {
     new import_obsidian2.Setting(this.containerEl).setName(name).setDesc(desc).addText(
       (text) => text.setPlaceholder(placeholder).setValue(this.plugin.settings[key]).onChange(async (v) => {
-        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : key === "tocPanelHotkey" ? DEFAULT_SETTINGS.tocPanelHotkey : key === "copySourceHotkey" ? DEFAULT_SETTINGS.copySourceHotkey : key === "breakdownTextDir" ? DEFAULT_SETTINGS.breakdownTextDir : key === "previousPageHotkey" ? DEFAULT_SETTINGS.previousPageHotkey : key === "nextPageHotkey" ? DEFAULT_SETTINGS.nextPageHotkey : key === "chapterTitleRegex" ? DEFAULT_SETTINGS.chapterTitleRegex : "";
+        const fallback = key === "searchHotkey" ? DEFAULT_SETTINGS.searchHotkey : key === "tocPanelHotkey" ? DEFAULT_SETTINGS.tocPanelHotkey : key === "copySourceHotkey" ? DEFAULT_SETTINGS.copySourceHotkey : key === "breakdownTextDir" ? DEFAULT_SETTINGS.breakdownTextDir : key === "previousPageHotkey" ? DEFAULT_SETTINGS.previousPageHotkey : key === "nextPageHotkey" ? DEFAULT_SETTINGS.nextPageHotkey : key === "chapterTitleRegex" ? DEFAULT_SETTINGS.chapterTitleRegex : key === "prologueTitleRegex" ? DEFAULT_SETTINGS.prologueTitleRegex : "";
         this.plugin.settings[key] = v.trim() || fallback;
         await this.plugin.savePluginData();
         this.refreshOpenReaders();
@@ -2770,6 +2832,8 @@ var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var READING_STATS_VIEW_TYPE = "puffs-reading-stats-view";
 var LEGACY_DEFAULT_TOC_REGEX = "^\\s*\u7B2C[\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*$";
 var LEGACY_DEFAULT_CHAPTER_TITLE_REGEX = "^\\s*\u7B2C([\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+)([\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7])\\s*(.*)$";
+var LEGACY_PROLOGUE_TOC_REGEX = "^\\s*(?:\u7B2C[\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+[\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7].*|(?:\u5E8F\u7AE0|\u6954\u5B50|\u5F15\u5B50)(?:\\s+.*)?)$";
+var LEGACY_PROLOGUE_CHAPTER_TITLE_REGEX = "^\\s*(?:\u7B2C([\u96F6\u3007\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u767E\u5343\u4E07\u4EBF\u4E24\\d]+)([\u7AE0\u8282\u56DE\u5377\u96C6\u90E8\u7BC7])\\s*(.*)|((?:\u5E8F\u7AE0|\u6954\u5B50|\u5F15\u5B50)(?:\\s+.*)?))$";
 var TxtFileSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
   constructor(plugin) {
     super(plugin.app);
@@ -3298,11 +3362,14 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     var _a, _b, _c, _d, _e;
     const data = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data == null ? void 0 : data.settings);
-    if (this.settings.tocRegex === LEGACY_DEFAULT_TOC_REGEX) {
+    if (this.settings.tocRegex === LEGACY_DEFAULT_TOC_REGEX || this.settings.tocRegex === LEGACY_PROLOGUE_TOC_REGEX) {
       this.settings.tocRegex = DEFAULT_SETTINGS.tocRegex;
     }
-    if (this.settings.chapterTitleRegex === LEGACY_DEFAULT_CHAPTER_TITLE_REGEX) {
+    if (this.settings.chapterTitleRegex === LEGACY_DEFAULT_CHAPTER_TITLE_REGEX || this.settings.chapterTitleRegex === LEGACY_PROLOGUE_CHAPTER_TITLE_REGEX) {
       this.settings.chapterTitleRegex = DEFAULT_SETTINGS.chapterTitleRegex;
+    }
+    if (this.settings.readingStatsMinPageMs === 3e3 || this.settings.readingStatsMinPageMs === 500) {
+      this.settings.readingStatsMinPageMs = DEFAULT_SETTINGS.readingStatsMinPageMs;
     }
     this.progress = (_a = data == null ? void 0 : data.progress) != null ? _a : {};
     this.bookSettings = (_b = data == null ? void 0 : data.bookSettings) != null ? _b : {};
@@ -3662,6 +3729,9 @@ var PuffsReaderPlugin = class extends import_obsidian3.Plugin {
     if (settings.tocRegex !== void 0 && settings.tocRegex !== "") compact.tocRegex = settings.tocRegex;
     if (settings.chapterTitleRegex !== void 0 && settings.chapterTitleRegex !== "") {
       compact.chapterTitleRegex = settings.chapterTitleRegex;
+    }
+    if (settings.prologueTitleRegex !== void 0 && settings.prologueTitleRegex !== "") {
+      compact.prologueTitleRegex = settings.prologueTitleRegex;
     }
     if (settings.tocIndentEnabled) {
       compact.tocIndentEnabled = true;

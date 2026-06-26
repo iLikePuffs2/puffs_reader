@@ -85,24 +85,25 @@ export class SettingsTab extends PluginSettingTab {
       '计入已读停留时间',
       '页面至少停留多久后，才计入已读字数和已读章节。',
       'readingStatsMinPageMs',
-      500,
+      100,
       60000,
-      500,
+      100,
       'ms',
     );
-    this.addNumberSetting(
+    this.addNumberSettingInMinutes(
       '阅读计时空闲截止',
       '在同一页停留超过多久后，停止继续累计阅读时长，直到下一次翻页或跳转。',
       'readingStatsIdleLimitMs',
-      10000,
-      600000,
-      5000,
-      'ms',
+      1,
+      60,
+      1,
+      'min',
     );
 
     containerEl.createEl('h3', { text: '目录与编码' });
     this.addTextSetting('目录匹配正则', '所有书籍默认章节匹配正则；单书设置可覆写。', 'tocRegex', DEFAULT_SETTINGS.tocRegex);
     this.addTextSetting('章名提取正则', '从章节行中提取显示标题的正则（需含捕获组）；单书设置可覆写。', 'chapterTitleRegex', DEFAULT_SETTINGS.chapterTitleRegex);
+    this.addTextSetting('序章匹配名称', '匹配序章、前言、楔子等不带“第几章”的标题；单书设置可覆写。', 'prologueTitleRegex', DEFAULT_SETTINGS.prologueTitleRegex);
 
     new Setting(containerEl)
       .setName('默认编码')
@@ -254,8 +255,13 @@ export class SettingsTab extends PluginSettingTab {
             save(v, true);
           }),
       )
-      .addText((text) =>
-        (textControl = text)
+      .addText((text) => {
+        textControl = text;
+        const unitEl = document.createElement('span');
+        unitEl.className = 'puffs-setting-unit';
+        unitEl.textContent = unit;
+        text.inputEl.insertAdjacentElement('afterend', unitEl);
+        return text
           .setValue(String(this.plugin.settings[key]))
           .setPlaceholder(unit)
           .onChange((v) => {
@@ -264,14 +270,72 @@ export class SettingsTab extends PluginSettingTab {
             if (Number.isNaN(n)) return;
             // 输入框编辑中只同步滑块和预览，不回写文本框，避免用户输入 900 时刚键入 9 就被夹到 360。
             save(n, false);
+          });
+      });
+  }
+
+  private addNumberSettingInMinutes(
+    name: string,
+    desc: string,
+    key: NumericSettingKey,
+    min: number,
+    max: number,
+    step: number,
+    unit: string,
+  ): void {
+    let sliderControl: SliderComponent | null = null;
+    let textControl: TextComponent | null = null;
+    let isSyncing = false;
+
+    const toMinutes = (valueMs: number): number => Math.round(valueMs / 60000);
+    const clamp = (value: number): number => Math.min(max, Math.max(min, value));
+    const save = async (valueMinutes: number, syncText: boolean): Promise<void> => {
+      const nextMinutes = clamp(valueMinutes);
+      this.plugin.settings[key] = nextMinutes * 60000;
+      isSyncing = true;
+      sliderControl?.setValue(nextMinutes);
+      if (syncText) textControl?.setValue(String(nextMinutes));
+      isSyncing = false;
+      await this.plugin.savePluginData();
+      this.refreshOpenReaders();
+    };
+    const currentMinutes = clamp(toMinutes(Number(this.plugin.settings[key])));
+
+    new Setting(this.containerEl)
+      .setName(name)
+      .setDesc(desc)
+      .addSlider((slider) =>
+        (sliderControl = slider)
+          .setLimits(min, max, step)
+          .setValue(currentMinutes)
+          .setDynamicTooltip()
+          .onChange((v) => {
+            if (isSyncing) return;
+            save(v, true);
           }),
-      );
+      )
+      .addText((text) => {
+        textControl = text;
+        const unitEl = document.createElement('span');
+        unitEl.className = 'puffs-setting-unit';
+        unitEl.textContent = unit;
+        text.inputEl.insertAdjacentElement('afterend', unitEl);
+        return text
+          .setValue(String(currentMinutes))
+          .setPlaceholder(unit)
+          .onChange((v) => {
+            if (isSyncing) return;
+            const n = Number(v);
+            if (Number.isNaN(n)) return;
+            save(n, false);
+          });
+      });
   }
 
   private addTextSetting(
     name: string,
     desc: string,
-    key: 'fontColor' | 'backgroundColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'chapterTitleRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'copySourceHotkey' | 'breakdownTextDir' | 'previousPageHotkey' | 'nextPageHotkey' | 'annotationHighlightColor' | 'annotationExportDir' | 'dataBackupPath',
+    key: 'fontColor' | 'backgroundColor' | 'chapterMetaColor' | 'progressMetaColor' | 'tocRegex' | 'chapterTitleRegex' | 'prologueTitleRegex' | 'searchHotkey' | 'tocPanelHotkey' | 'copySourceHotkey' | 'breakdownTextDir' | 'previousPageHotkey' | 'nextPageHotkey' | 'annotationHighlightColor' | 'annotationExportDir' | 'dataBackupPath',
     placeholder: string,
   ): void {
     new Setting(this.containerEl)
@@ -290,6 +354,7 @@ export class SettingsTab extends PluginSettingTab {
               key === 'previousPageHotkey' ? DEFAULT_SETTINGS.previousPageHotkey :
               key === 'nextPageHotkey' ? DEFAULT_SETTINGS.nextPageHotkey :
               key === 'chapterTitleRegex' ? DEFAULT_SETTINGS.chapterTitleRegex :
+              key === 'prologueTitleRegex' ? DEFAULT_SETTINGS.prologueTitleRegex :
               '';
             this.plugin.settings[key] = v.trim() || fallback;
             await this.plugin.savePluginData();

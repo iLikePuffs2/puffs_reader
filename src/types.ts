@@ -56,6 +56,8 @@ export interface ReaderSettings {
   tocRegex: string;
   /** 全局章名提取正则，单书设置可以覆写 */
   chapterTitleRegex: string;
+  /** 全局序章类标题匹配正则，单书设置可以覆写 */
+  prologueTitleRegex: string;
   /** 默认编码 */
   defaultEncoding: string;
   /** 全文搜索快捷键 */
@@ -116,6 +118,8 @@ export interface BookSettings {
   tocRegex?: string;
   /** 当前书的章名提取正则覆写 */
   chapterTitleRegex?: string;
+  /** 当前书的序章类标题匹配正则覆写 */
+  prologueTitleRegex?: string;
   /** Whether the current book uses two-level TOC indentation. */
   tocIndentEnabled?: boolean;
   /** Regex for the level-1 chapter marker, e.g. "卷" or "部". */
@@ -218,8 +222,9 @@ export const SUPPORTED_ENCODINGS = [
   { value: 'euc-kr', label: 'EUC-KR' },
 ];
 
-export const DEFAULT_TOC_REGEX = '^\\s*(?:第[零〇一二三四五六七八九十百千万亿两\\d]+[章节回卷集部篇].*|(?:序章|楔子|引子)(?:\\s+.*)?)$';
-export const DEFAULT_CHAPTER_TITLE_REGEX = '^\\s*(?:第([零〇一二三四五六七八九十百千万亿两\\d]+)([章节回卷集部篇])\\s*(.*)|((?:序章|楔子|引子)(?:\\s+.*)?))$';
+export const DEFAULT_TOC_REGEX = '^\\s*第[零〇一二三四五六七八九十百千万亿两\\d]+[章节回卷集部篇].*$';
+export const DEFAULT_CHAPTER_TITLE_REGEX = '^\\s*第([零〇一二三四五六七八九十百千万亿两\\d]+)([章节回卷集部篇])\\s*(.*)$';
+export const DEFAULT_PROLOGUE_TITLE_REGEX = '^\\s*(?:序章|前言|楔子|引子)(?:\\s+.*)?$';
 
 /** 默认设置 */
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -251,6 +256,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   nextPageHotkey: 'l',
   tocRegex: DEFAULT_TOC_REGEX,
   chapterTitleRegex: DEFAULT_CHAPTER_TITLE_REGEX,
+  prologueTitleRegex: DEFAULT_PROLOGUE_TITLE_REGEX,
   defaultEncoding: 'utf-8',
   searchHotkey: 'Ctrl+F',
   tocPanelHotkey: 'Ctrl+B',
@@ -263,6 +269,6 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   dataBackupPath: '',
   dataBackupFrequencyHours: 24,
   bookLibraryPath: '',
-  readingStatsMinPageMs: 3000,
+  readingStatsMinPageMs: 100,
   readingStatsIdleLimitMs: 120000,
 };

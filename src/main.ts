@@ -21,6 +21,8 @@ import {
 const READING_STATS_VIEW_TYPE = 'puffs-reading-stats-view';
 const LEGACY_DEFAULT_TOC_REGEX = '^\\s*第[零〇一二三四五六七八九十百千万亿两\\d]+[章节回卷集部篇].*$';
 const LEGACY_DEFAULT_CHAPTER_TITLE_REGEX = '^\\s*第([零〇一二三四五六七八九十百千万亿两\\d]+)([章节回卷集部篇])\\s*(.*)$';
+const LEGACY_PROLOGUE_TOC_REGEX = '^\\s*(?:第[零〇一二三四五六七八九十百千万亿两\\d]+[章节回卷集部篇].*|(?:序章|楔子|引子)(?:\\s+.*)?)$';
+const LEGACY_PROLOGUE_CHAPTER_TITLE_REGEX = '^\\s*(?:第([零〇一二三四五六七八九十百千万亿两\\d]+)([章节回卷集部篇])\\s*(.*)|((?:序章|楔子|引子)(?:\\s+.*)?))$';
 
 /** 插件持久化数据结构 */
 interface PluginData {
@@ -679,11 +681,17 @@ export default class PuffsReaderPlugin extends Plugin {
   async loadPluginData(): Promise<void> {
     const data = (await this.loadData()) as PluginData | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.settings);
-    if (this.settings.tocRegex === LEGACY_DEFAULT_TOC_REGEX) {
+    if (this.settings.tocRegex === LEGACY_DEFAULT_TOC_REGEX || this.settings.tocRegex === LEGACY_PROLOGUE_TOC_REGEX) {
       this.settings.tocRegex = DEFAULT_SETTINGS.tocRegex;
     }
-    if (this.settings.chapterTitleRegex === LEGACY_DEFAULT_CHAPTER_TITLE_REGEX) {
+    if (
+      this.settings.chapterTitleRegex === LEGACY_DEFAULT_CHAPTER_TITLE_REGEX ||
+      this.settings.chapterTitleRegex === LEGACY_PROLOGUE_CHAPTER_TITLE_REGEX
+    ) {
       this.settings.chapterTitleRegex = DEFAULT_SETTINGS.chapterTitleRegex;
+    }
+    if (this.settings.readingStatsMinPageMs === 3000 || this.settings.readingStatsMinPageMs === 500) {
+      this.settings.readingStatsMinPageMs = DEFAULT_SETTINGS.readingStatsMinPageMs;
     }
     this.progress = data?.progress ?? {};
     this.bookSettings = data?.bookSettings ?? {};
@@ -1089,6 +1097,9 @@ export default class PuffsReaderPlugin extends Plugin {
     if (settings.tocRegex !== undefined && settings.tocRegex !== '') compact.tocRegex = settings.tocRegex;
     if (settings.chapterTitleRegex !== undefined && settings.chapterTitleRegex !== '') {
       compact.chapterTitleRegex = settings.chapterTitleRegex;
+    }
+    if (settings.prologueTitleRegex !== undefined && settings.prologueTitleRegex !== '') {
+      compact.prologueTitleRegex = settings.prologueTitleRegex;
     }
     if (settings.tocIndentEnabled) {
       compact.tocIndentEnabled = true;
