@@ -56,6 +56,17 @@ export class SettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName('显示顶部章名')
+      .setDesc('在阅读区顶部显示当前章节名')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.showChapterTitle).onChange(async (v) => {
+          this.plugin.settings.showChapterTitle = v;
+          await this.plugin.savePluginData();
+          this.refreshOpenReaders();
+        }),
+      );
+
+    new Setting(containerEl)
       .setName('去除多余空行')
       .setDesc('自动清理 TXT 中连续的空白行')
       .addToggle((toggle) =>

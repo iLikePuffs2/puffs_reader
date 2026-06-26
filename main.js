@@ -65,6 +65,7 @@ var DEFAULT_SETTINGS = {
   sidebarTransitionMs: 180,
   tocFontSize: 13,
   showProgress: true,
+  showChapterTitle: true,
   removeExtraBlankLines: true,
   cursorHideDelayMs: 2e3,
   manualPageTurnsPerSecond: 4,
@@ -948,7 +949,12 @@ var ReaderView = class extends import_obsidian.ItemView {
   }
   updatePageMeta() {
     const activeChapter = this.getActiveChapterIndex(this.currentPageStart.paraIndex);
-    this.chapterTitleEl.textContent = activeChapter >= 0 ? this.chapters[activeChapter].title : "";
+    if (this.plugin.settings.showChapterTitle) {
+      this.chapterTitleEl.textContent = activeChapter >= 0 ? this.chapters[activeChapter].title : "";
+      this.chapterTitleEl.classList.remove("puffs-hidden");
+    } else {
+      this.chapterTitleEl.classList.add("puffs-hidden");
+    }
     this.highlightCurrentTocItem(activeChapter);
     if (this.plugin.settings.showProgress) {
       const current = Math.min(this.currentPageStart.paraIndex, this.paragraphs.length);
@@ -2362,6 +2368,13 @@ var SettingsTab = class extends import_obsidian2.PluginSettingTab {
     new import_obsidian2.Setting(containerEl).setName("\u663E\u793A\u9605\u8BFB\u8FDB\u5EA6").setDesc("\u5728\u9875\u9762\u5E95\u90E8\u663E\u793A\u9605\u8BFB\u767E\u5206\u6BD4").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showProgress).onChange(async (v) => {
         this.plugin.settings.showProgress = v;
+        await this.plugin.savePluginData();
+        this.refreshOpenReaders();
+      })
+    );
+    new import_obsidian2.Setting(containerEl).setName("\u663E\u793A\u9876\u90E8\u7AE0\u540D").setDesc("\u5728\u9605\u8BFB\u533A\u9876\u90E8\u663E\u793A\u5F53\u524D\u7AE0\u8282\u540D").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.showChapterTitle).onChange(async (v) => {
+        this.plugin.settings.showChapterTitle = v;
         await this.plugin.savePluginData();
         this.refreshOpenReaders();
       })

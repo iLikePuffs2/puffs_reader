@@ -40,6 +40,8 @@ export interface ReaderSettings {
   tocFontSize: number;
   /** 是否显示阅读进度百分比 */
   showProgress: boolean;
+  /** 是否显示顶部章名 */
+  showChapterTitle: boolean;
   /** 是否去除多余空行 */
   removeExtraBlankLines: boolean;
   /** 阅读器激活时鼠标静止多久后隐藏光标 (ms)，0 表示不隐藏 */
@@ -191,6 +193,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   sidebarTransitionMs: 180,
   tocFontSize: 13,
   showProgress: true,
+  showChapterTitle: true,
   removeExtraBlankLines: true,
   cursorHideDelayMs: 2000,
   manualPageTurnsPerSecond: 4,

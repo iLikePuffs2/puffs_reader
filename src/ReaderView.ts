@@ -1071,7 +1071,12 @@ export class ReaderView extends ItemView {
 
   private updatePageMeta(): void {
     const activeChapter = this.getActiveChapterIndex(this.currentPageStart.paraIndex);
-    this.chapterTitleEl.textContent = activeChapter >= 0 ? this.chapters[activeChapter].title : '';
+    if (this.plugin.settings.showChapterTitle) {
+      this.chapterTitleEl.textContent = activeChapter >= 0 ? this.chapters[activeChapter].title : '';
+      this.chapterTitleEl.classList.remove('puffs-hidden');
+    } else {
+      this.chapterTitleEl.classList.add('puffs-hidden');
+    }
     this.highlightCurrentTocItem(activeChapter);
 
     if (this.plugin.settings.showProgress) {
