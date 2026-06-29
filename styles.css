@@ -660,6 +660,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.puffs-reading-stats-book .puffs-reading-stats-book-meta {
+  margin-top: 12px;
+}
+
 .puffs-reading-stats-book-arrow {
   display: flex;
   color: var(--text-faint);
@@ -672,12 +676,11 @@
   word-break: break-word;
 }
 
-.puffs-reading-stats-detail-chapters {
-  margin: 0 0 16px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 16%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--text-muted) 5%, transparent);
+.puffs-reading-stats-day-chapters {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .puffs-reading-stats-section-title {
@@ -686,48 +689,6 @@
   font-size: 22px;
   font-weight: 600;
   line-height: 1.25;
-}
-
-.puffs-reading-stats-progress-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  margin: -2px 0 16px;
-}
-
-.puffs-reading-stats-progress-item {
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 16%, transparent);
-  border-radius: 6px;
-  background: var(--background-primary);
-}
-
-.puffs-reading-stats-progress-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.puffs-reading-stats-progress-top span:last-child {
-  color: var(--text-normal);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.puffs-reading-stats-progress-track {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
-}
-
-.puffs-reading-stats-progress-bar {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--interactive-accent);
 }
 
 .puffs-reading-stats-chart-card {

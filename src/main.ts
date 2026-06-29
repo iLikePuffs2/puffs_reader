@@ -1,4 +1,4 @@
-import { Plugin, TFile, FuzzySuggestModal, WorkspaceLeaf, normalizePath, ItemView, ViewStateResult, setIcon } from 'obsidian';
+import { Plugin, TFile, FuzzySuggestModal, WorkspaceLeaf, normalizePath, ItemView, ViewStateResult, setIcon, Menu, Notice } from 'obsidian';
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -53,11 +53,6 @@ interface ReadingStatsChartPoint {
   title: string;
 }
 
-interface BookProgressMetrics {
-  positionProgress: string;
-  coverageProgress: string;
-}
-
 /**
  * TXT 文件选择弹窗
  * 使用 Obsidian 原生的模糊搜索 Modal，列出仓库中所有 .txt 文件供用户选择。
@@ -94,7 +89,6 @@ class ReadingStatsView extends ItemView {
   private globalMetric: ReadingStatsMetric | null = null;
   private bookMetric: ReadingStatsMetric | null = null;
   private speedUnit: ReadingStatsSpeedUnit = 'hour';
-  private bookProgressMetricsCache = new Map<string, BookProgressMetrics>();
 
   constructor(leaf: WorkspaceLeaf, plugin: PuffsReaderPlugin) {
     super(leaf);
@@ -141,7 +135,7 @@ class ReadingStatsView extends ItemView {
     this.contentEl.addClass('puffs-reading-stats-view');
     const page = this.contentEl.createDiv({ cls: 'puffs-reading-stats-page' });
     if (this.selectedBookPath) {
-      void this.renderBookDetail(page, this.selectedBookPath, this.renderVersion);
+      this.renderBookDetail(page, this.selectedBookPath);
     } else {
       this.renderGlobal(page);
     }
@@ -195,6 +189,7 @@ class ReadingStatsView extends ItemView {
           openBook();
         }
       });
+      this.registerBookStatsContextMenu(card, filePath);
       const main = card.createDiv({ cls: 'puffs-reading-stats-book-main' });
       main.createDiv({ cls: 'puffs-reading-stats-book-title', text: book.title || filePath });
       const meta = main.createDiv({ cls: 'puffs-reading-stats-book-meta' });
@@ -206,13 +201,12 @@ class ReadingStatsView extends ItemView {
           `最近 ${this.formatDateTime(book.lastReadAt)}`,
         ].join('；'),
       });
-      main.createDiv({ cls: 'puffs-reading-stats-chapters', text: this.formatChapterRanges(book.readChapterRanges) });
       const arrow = card.createSpan({ cls: 'puffs-reading-stats-book-arrow' });
       setIcon(arrow, 'chevron-right');
     }
   }
 
-  private renderBookDetail(parent: HTMLElement, filePath: string, renderVersion: number): void {
+  private renderBookDetail(parent: HTMLElement, filePath: string): void {
     const stats = this.plugin.getReadingStats();
     const book = stats.books[filePath];
     if (!book) {
@@ -232,8 +226,6 @@ class ReadingStatsView extends ItemView {
     this.createSummaryItem(summary, '累计时长', this.formatCompactDuration(book.totalReadingMs), 'time', this.bookMetric === 'time', () => this.toggleBookMetric('time'));
     this.createSummaryItem(summary, '平均阅读速度', this.formatSpeed(book.totalReadWords, book.totalReadingMs, 'hour'), 'speed', this.bookMetric === 'speed', () => this.toggleBookMetric('speed'));
 
-    parent.createDiv({ cls: 'puffs-reading-stats-chapters puffs-reading-stats-detail-chapters', text: this.formatChapterRanges(book.readChapterRanges) });
-
     if (this.bookMetric) {
       this.renderMetricChart(parent, this.bookMetric, [...dailyEntries].reverse().map(([date, item]) => ({
         date,
@@ -241,12 +233,6 @@ class ReadingStatsView extends ItemView {
         readingMs: item.readingMs,
       })));
     }
-
-    const progress = parent.createDiv({ cls: 'puffs-reading-stats-progress-grid' });
-    const metrics = this.bookProgressMetricsCache.get(filePath) ?? { positionProgress: '--', coverageProgress: '--' };
-    this.createProgressItem(progress, '当前位置进度', metrics.positionProgress);
-    this.createProgressItem(progress, '统计覆盖进度', metrics.coverageProgress);
-    this.refreshBookProgressMetrics(filePath, book, progress, renderVersion);
 
     this.createSectionTitle(parent, '每日明细');
     const list = parent.createDiv({ cls: 'puffs-reading-stats-list' });
@@ -256,6 +242,7 @@ class ReadingStatsView extends ItemView {
     }
     for (const [date, item] of dailyEntries) {
       const card = list.createDiv({ cls: 'puffs-reading-stats-day' });
+      this.registerBookDailyStatsContextMenu(card, filePath, date);
       card.createDiv({ cls: 'puffs-reading-stats-day-title', text: date });
       const meta = card.createDiv({ cls: 'puffs-reading-stats-book-meta' });
       meta.createSpan({
@@ -265,7 +252,7 @@ class ReadingStatsView extends ItemView {
           `平均阅读速度 ${this.formatSpeed(item.readWords, item.readingMs, 'hour')}`,
         ].join('；'),
       });
-      card.createDiv({ cls: 'puffs-reading-stats-chapters', text: this.formatChapterRanges(item.readChapterRanges, '阅读章节') });
+      card.createDiv({ cls: 'puffs-reading-stats-chapters puffs-reading-stats-day-chapters', text: this.formatChapterRanges(item.readChapterRanges, '阅读章节') });
     }
   }
 
@@ -312,18 +299,54 @@ class ReadingStatsView extends ItemView {
     }
   }
 
-  private createProgressItem(parent: HTMLElement, label: string, value: string): void {
-    const item = parent.createDiv({ cls: 'puffs-reading-stats-progress-item' });
-    const top = item.createDiv({ cls: 'puffs-reading-stats-progress-top' });
-    top.createSpan({ text: label });
-    top.createSpan({ text: value });
-    const track = item.createDiv({ cls: 'puffs-reading-stats-progress-track' });
-    const bar = track.createDiv({ cls: 'puffs-reading-stats-progress-bar' });
-    bar.style.width = this.parsePercent(value);
-  }
-
   private createSectionTitle(parent: HTMLElement, title: string): void {
     parent.createDiv({ cls: 'puffs-reading-stats-section-title', text: title });
+  }
+
+  private registerBookStatsContextMenu(card: HTMLElement, filePath: string): void {
+    card.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      const menu = new Menu();
+      menu.addItem((item) => {
+        item
+          .setTitle('删除数据')
+          .setIcon('trash')
+          .onClick(() => {
+            this.plugin.deleteBookReadingStats(filePath)
+              .then(() => {
+                new Notice('已删除这本书的阅读统计');
+                if (this.selectedBookPath === filePath) this.selectedBookPath = null;
+                this.globalMetric = null;
+                this.bookMetric = null;
+                this.render();
+              })
+              .catch((error) => console.error('[Puffs Reader] Failed to delete book reading stats:', error));
+          });
+      });
+      menu.showAtMouseEvent(event);
+    });
+  }
+
+  private registerBookDailyStatsContextMenu(card: HTMLElement, filePath: string, date: string): void {
+    card.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      const menu = new Menu();
+      menu.addItem((item) => {
+        item
+          .setTitle('删除数据')
+          .setIcon('trash')
+          .onClick(() => {
+            this.plugin.deleteBookDailyReadingStats(filePath, date)
+              .then(() => {
+                new Notice('已删除当天阅读统计');
+                this.bookMetric = null;
+                this.render();
+              })
+              .catch((error) => console.error('[Puffs Reader] Failed to delete book daily reading stats:', error));
+          });
+      });
+      menu.showAtMouseEvent(event);
+    });
   }
 
   private toggleGlobalMetric(metric: ReadingStatsMetric): void {
@@ -457,56 +480,6 @@ class ReadingStatsView extends ItemView {
       svg.appendChild(circle);
     });
     card.appendChild(svg);
-  }
-
-  private parsePercent(value: string): string {
-    const match = value.match(/([\d.]+)%/);
-    if (!match) return '0%';
-    const percent = Math.max(0, Math.min(100, Number(match[1])));
-    return Number.isFinite(percent) ? `${percent}%` : '0%';
-  }
-
-  private refreshBookProgressMetrics(filePath: string, book: { countedRanges: CountedRange[] }, container: HTMLElement, renderVersion: number): void {
-    this.getBookProgressMetrics(filePath, book)
-      .then((metrics) => {
-        this.bookProgressMetricsCache.set(filePath, metrics);
-        if (renderVersion !== this.renderVersion || this.selectedBookPath !== filePath || !container.isConnected) return;
-        container.empty();
-        this.createProgressItem(container, '当前位置进度', metrics.positionProgress);
-        this.createProgressItem(container, '统计覆盖进度', metrics.coverageProgress);
-      })
-      .catch((error) => console.error('[Puffs Reader] Failed to refresh book progress metrics:', error));
-  }
-
-  private async getBookProgressMetrics(filePath: string, book: { countedRanges: CountedRange[] }): Promise<BookProgressMetrics> {
-    const file = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(file instanceof TFile)) return { positionProgress: '--', coverageProgress: '--' };
-    try {
-      const buffer = await this.app.vault.readBinary(file);
-      const encoding = this.plugin.getBookSettings(filePath).encoding ?? this.plugin.settings.defaultEncoding;
-      const text = this.decodeBuffer(buffer, encoding);
-      const paragraphs = this.plugin.settings.removeExtraBlankLines
-        ? text.split(/\r?\n/).filter((line) => line.trim() !== '')
-        : text.split(/\r?\n/);
-      const progress = this.plugin.getProgress(filePath);
-      const positionProgress = progress && paragraphs.length > 0
-        ? `${Math.min(100, (Math.min(progress.paragraphIndex, paragraphs.length) / paragraphs.length) * 100).toFixed(1)}%`
-        : '--';
-      const totalChars = paragraphs.join('\n').length;
-      const covered = book.countedRanges.reduce((sum, range) => sum + Math.max(0, range.end - range.start), 0);
-      const coverageProgress = totalChars > 0 ? `${Math.min(100, (covered / totalChars) * 100).toFixed(1)}%` : '--';
-      return { positionProgress, coverageProgress };
-    } catch {
-      return { positionProgress: '--', coverageProgress: '--' };
-    }
-  }
-
-  private decodeBuffer(buffer: ArrayBuffer, encoding: string): string {
-    try {
-      return new TextDecoder(encoding, { fatal: false }).decode(buffer);
-    } catch {
-      return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-    }
   }
 
   private formatChapterRanges(ranges: ReadChapterRange[], label = '已读章节'): string {
@@ -991,6 +964,39 @@ export default class PuffsReaderPlugin extends Plugin {
     await this.savePluginData();
   }
 
+  async deleteBookReadingStats(filePath: string): Promise<void> {
+    const book = this.readingStats.books[filePath];
+    if (!book) return;
+    for (const [date, item] of Object.entries(book.daily ?? {})) {
+      this.removeBookContributionFromDaily(date, filePath, item.readingMs, item.readWords);
+    }
+    delete this.readingStats.books[filePath];
+    await this.savePluginData();
+  }
+
+  async deleteBookDailyReadingStats(filePath: string, date: string): Promise<void> {
+    const book = this.readingStats.books[filePath];
+    const daily = book?.daily?.[date];
+    if (!book || !daily) return;
+
+    this.removeBookContributionFromDaily(date, filePath, daily.readingMs, daily.readWords);
+    delete book.daily[date];
+
+    const remainingDaily = Object.entries(book.daily ?? {});
+    if (remainingDaily.length === 0) {
+      delete this.readingStats.books[filePath];
+      await this.savePluginData();
+      return;
+    }
+
+    book.totalReadingMs = remainingDaily.reduce((sum, [, item]) => sum + this.safeNonNegativeNumber(item.readingMs), 0);
+    book.totalReadWords = remainingDaily.reduce((sum, [, item]) => sum + this.safeNonNegativeNumber(item.readWords), 0);
+    book.readChapterRanges = this.mergeChapterRanges(remainingDaily.flatMap(([, item]) => item.readChapterRanges ?? []));
+    book.lastReadAt = Math.max(...remainingDaily.map(([day]) => this.getEndOfLocalDayTimestamp(day)), 0);
+    this.readingStats.books[filePath] = book;
+    await this.savePluginData();
+  }
+
   async recordReadingStat(record: ReadingStatRecord): Promise<void> {
     const timestamp = record.timestamp ?? Date.now();
     const readingMs = this.safeNonNegativeNumber(record.readingMs);
@@ -1084,6 +1090,25 @@ export default class PuffsReaderPlugin extends Plugin {
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private getEndOfLocalDayTimestamp(date: string): number {
+    const [year, month, day] = date.split('-').map((part) => Number(part));
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return 0;
+    return new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
+  }
+
+  private removeBookContributionFromDaily(date: string, filePath: string, readingMs: number, readWords: number): void {
+    const daily = this.readingStats.daily[date];
+    if (!daily) return;
+    daily.readingMs = Math.max(0, this.safeNonNegativeNumber(daily.readingMs) - this.safeNonNegativeNumber(readingMs));
+    daily.readWords = Math.max(0, this.safeNonNegativeNumber(daily.readWords) - this.safeNonNegativeNumber(readWords));
+    daily.bookPaths = (daily.bookPaths ?? []).filter((path) => path !== filePath);
+    if (daily.readingMs <= 0 && daily.readWords <= 0 && daily.bookPaths.length === 0) {
+      delete this.readingStats.daily[date];
+    } else {
+      this.readingStats.daily[date] = daily;
+    }
   }
 
   private async markBookAsRecentlyRead(filePath: string): Promise<void> {
